@@ -4,16 +4,16 @@
 
 - Node.js 26.12.0 y npm 12.2.1.
 - OpenJDK 25 disponible.
-- En esta sesión no se verificó Android SDK, emulador ni dispositivo físico.
+- Dispositivo Android conectado por ADB para la verificación de CRUD.
 
 ## Resultados
 
 - `npx expo lint`: pasó.
 - `npx tsc --noEmit`: pasó.
-- `npm test`: pasó, 1 suite y 9 casos sobre parseo, formato, redondeo y límites de importes en centavos.
+- `npm test`: pasó, 2 suites y 13 casos sobre dinero y validación de productos.
 - `npx expo-doctor`: 20/20 comprobaciones.
 - `npx expo export --platform android`: pasó; Metro creó el bundle Android.
-- `npx expo run:android`: build debug nativa pasó (primera build 12:53; incremental final 1:01), y la app se instaló y abrió en el dispositivo M2101K6R. Se observó el dashboard y los contadores iniciales vacíos.
+- `npx expo run:android`: build debug nativa del CRUD pasó en 30 s y se instaló en M2101K6R. Se abrió el catálogo vacío y el formulario de producto. La migración 2 se confirmó en SQLite del dispositivo. No se completó un alta manual en el dispositivo.
 - Se leyó la SQLite creada en el dispositivo: migración 1 aplicada, tablas `schema_migrations`, `business_settings`, `products`, negocio provisional y moneda MXN. Tras forzar cierre y relanzar la app, la migración y los ajustes siguieron presentes.
 - `npm audit --omit=dev --audit-level=high`: encontró dependencias transitivas vulnerables en la cadena Expo/Metro y `node-forge`; npm propone como arreglo forzado bajar Expo a 44. No se aplicó porque rompe el SDK seleccionado. Revisar en una actualización compatible de Expo. La instalación de Jest también muestra avisos en dependencias de desarrollo; el audit completo registra 54 vulnerabilidades (26 moderadas, 28 altas).
 

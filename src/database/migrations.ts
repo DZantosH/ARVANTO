@@ -39,4 +39,18 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
       await db.runAsync('INSERT INTO schema_migrations (version) VALUES (?)', 1);
     });
   }
+
+  if ((current?.version ?? 0) < 2) {
+    await db.withTransactionAsync(async () => {
+      await db.execAsync(`
+        ALTER TABLE products ADD COLUMN description TEXT NOT NULL DEFAULT '';
+        ALTER TABLE products ADD COLUMN cost_cents INTEGER NOT NULL DEFAULT 0 CHECK (cost_cents >= 0);
+        UPDATE products SET sku = NULL WHERE sku IS NOT NULL AND trim(sku) = '';
+        CREATE UNIQUE INDEX products_sku_nocase_idx
+          ON products (sku COLLATE NOCASE)
+          WHERE sku IS NOT NULL;
+      `);
+      await db.runAsync('INSERT INTO schema_migrations (version) VALUES (?)', 2);
+    });
+  }
 }

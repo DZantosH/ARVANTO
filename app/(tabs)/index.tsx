@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View, Pressable, RefreshControl } from 'react-native';
-import { useFocusEffect } from 'expo-router';
+import { Link, type Href, useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { getDashboardSummary, type DashboardSummary } from '@/src/database/dashboardRepository';
 import { formatCurrencyFromCents } from '@/src/domain/money';
@@ -58,7 +58,7 @@ export default function DashboardScreen() {
       <View style={styles.quickTitle}><SectionHeading title="Accesos rápidos" /></View>
       <View style={styles.quickGrid}>
         <QuickAction icon="＋" title="Nueva venta" color={theme.colors.primary} />
-        <QuickAction icon="▦" title="Productos" color="#34668E" />
+        <QuickAction icon="▦" title="Productos" color="#34668E" href={'/products' as Href} />
         <QuickAction icon="↕" title="Inventario" color="#A36B28" />
         <QuickAction icon="◷" title="Corte de caja" color="#7B5D96" />
       </View>
@@ -69,8 +69,9 @@ export default function DashboardScreen() {
   );
 }
 
-function QuickAction({ icon, title, color }: { icon: string; title: string; color: string }) {
-  return <View style={styles.quickCard}><View style={[styles.quickIcon, { backgroundColor: `${color}14` }]}><Text style={[styles.quickIconText, { color }]}>{icon}</Text></View><Text style={styles.quickText}>{title}</Text><Text style={styles.chevron}>›</Text></View>;
+function QuickAction({ icon, title, color, href }: { icon: string; title: string; color: string; href?: Href }) {
+  const content = <View style={styles.quickCard}><View style={[styles.quickIcon, { backgroundColor: `${color}14` }]}><Text style={[styles.quickIconText, { color }]}>{icon}</Text></View><Text style={styles.quickText}>{title}</Text><Text style={styles.chevron}>›</Text></View>;
+  return href ? <Link href={href} asChild><Pressable accessibilityRole="button">{content}</Pressable></Link> : content;
 }
 
 const styles = StyleSheet.create({

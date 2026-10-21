@@ -12,6 +12,7 @@ export default function TabLayout() {
       tabBarLabelStyle: { fontSize: 11, fontWeight: '700' },
     }}>
       <Tabs.Screen name="index" options={{ title: 'Inicio', tabBarLabel: 'Inicio', tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 21 }}>⌂</Text> }} />
+      <Tabs.Screen name="products" options={{ title: 'Productos', tabBarLabel: 'Productos', tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 19 }}>▦</Text> }} />
     </Tabs>
   );
 }
