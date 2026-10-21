@@ -16,12 +16,20 @@ Referencias versionadas: [Expo SQLite SDK 58](https://docs.expo.dev/versions/v58
 
 ## Persistencia y cambios de esquema
 
-`ferrepos.db` usa WAL y claves foráneas. `schema_migrations` registra versiones aplicadas. Cada migración futura debe ejecutarse en transacción y conservar datos históricos. La migración 1 crea ajustes locales y catálogo inicial vacío.
+`ferrepos.db` usa WAL y claves foráneas. `schema_migrations` registra versiones aplicadas. Cada migración se ejecuta en transacción y conserva datos históricos. Las migraciones 1–3 crean ajustes, catálogo y datos POS locales.
 
 ## Estrategia futura de sincronización
 
 Cada entidad sincronizable tendrá UUID, `created_at`/`updated_at` UTC y movimientos auditables. Una edición en línea futura puede implementar una cola local idempotente y reintentos en un repositorio remoto, con resolución explícita de conflictos por negocio. La edición local no mostrará estados de sincronización ni enviará datos.
 
+## Venta, caja y respaldos
+
+La venta valida total y pagos, luego en una transacción SQLite exclusiva guarda ticket, partidas, pagos, movimientos de inventario y descuento de existencias. Relee precios y stock desde SQLite antes de confirmar. El POS exige caja abierta y bloquea el doble toque mientras guarda.
+
+Los turnos de caja guardan fondo inicial, cobros por método, entradas, retiros, conteo final y diferencia. El efectivo esperado solo suma cobros en efectivo; tarjeta y transferencia no se mezclan con el cajón.
+
+La copia manual usa la API de backup de SQLite para crear un snapshot consistente, lo cifra con AES-GCM y lo comparte con la hoja del sistema. La clave aleatoria de 256 bits queda en SecureStore y puede mostrarse para guardarla o transferirla por separado. Sin esa clave el archivo no se recupera. La restauración comprueba formato, autenticidad AES-GCM, `PRAGMA integrity_check` y versión; crea un snapshot local previo antes de reemplazar la base. Los respaldos no se envían automáticamente a la nube.
+
 ## Límites actuales
 
-No se han implementado todavía ventas, autenticación local, copia/restauración, cifrado SQLite, impresoras ni escáner. Esas funciones necesitan decisiones y validación en las fases posteriores; el dashboard no muestra métricas inventadas.
+No se han implementado clientes/crédito, descuentos, impuestos, cancelaciones/devoluciones, impresión física, escáner, múltiples usuarios ni cifrado SQLite en reposo. El ticket se presenta en pantalla. La clave de respaldo es transferible por decisión explícita del usuario y debe guardarse separada del archivo.

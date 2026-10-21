@@ -51,16 +51,17 @@ export default function DashboardScreen() {
 
       <View style={styles.sectionTitleRow}><SectionHeading title="Tu operación" /><StatusPill label="Datos locales" /></View>
       <View style={styles.metricRow}>
-        <View style={styles.metricCard}><Text style={styles.metricLabel}>Caja</Text><Text style={styles.metricValue}>Cerrada</Text><Text style={styles.metricHint}>Sin turno activo</Text></View>
+        <View style={styles.metricCard}><Text style={styles.metricLabel}>Caja</Text><Text style={styles.metricValue}>{summary?.cashOpen ? 'Abierta' : 'Cerrada'}</Text><Text style={styles.metricHint}>{summary?.cashOpen ? 'Turno en curso' : 'Sin turno activo'}</Text></View>
         <View style={styles.metricCard}><Text style={styles.metricLabel}>Stock bajo</Text><Text style={styles.metricValue}>{summary?.lowStockCount ?? '—'}</Text><Text style={styles.metricHint}>Productos por revisar</Text></View>
       </View>
 
       <View style={styles.quickTitle}><SectionHeading title="Accesos rápidos" /></View>
       <View style={styles.quickGrid}>
-        <QuickAction icon="＋" title="Nueva venta" color={theme.colors.primary} />
+        <QuickAction icon="＋" title="Nueva venta" color={theme.colors.primary} href={'/sale' as Href} />
         <QuickAction icon="▦" title="Productos" color="#34668E" href={'/products' as Href} />
         <QuickAction icon="↕" title="Inventario" color="#A36B28" />
-        <QuickAction icon="◷" title="Corte de caja" color="#7B5D96" />
+        <QuickAction icon="◷" title="Corte de caja" color="#7B5D96" href={'/cash' as Href} />
+        <QuickAction icon="↥" title="Respaldos" color="#64748B" href={'/backup' as Href} />
       </View>
 
       {error ? <Pressable onPress={() => void loadSummary()}><Text style={styles.error}>{error} · Toca para reintentar</Text></Pressable> : null}

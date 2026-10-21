@@ -29,3 +29,11 @@
 - Se añadió validación de formulario, precio positivo, cantidades con hasta tres decimales y existencia inicial solo al crear. El stock actual se reserva para movimientos de inventario.
 - Se integró el catálogo al tab bar y al acceso rápido del dashboard.
 - Pruebas unitarias, lint, TypeScript y compatibilidad de dependencias SDK pasan. La build nativa Android se instaló y el catálogo y formulario abrieron en el dispositivo; se confirmó migración 2 en SQLite.
+
+## Ventas, caja y respaldos
+
+- La migración 3 añade turnos, pagos, tickets, partidas, movimientos de caja e inventario.
+- El POS busca productos, mantiene carrito, admite pagos en efectivo/tarjeta/transferencia y mixtos, calcula cambio y muestra ticket. La venta se confirma en transacción exclusiva y descuenta stock.
+- Caja permite abrir turno, registrar entradas/retiros, ver cobros por método, capturar conteo y cerrar guardando diferencia.
+- El respaldo manual cifra un snapshot SQLite con AES-GCM; la restauración valida autenticidad, integridad y versión y conserva una copia previa local.
+- TypeScript, lint, SDK y 18 pruebas pasan. Build Android instalada; migración 3 aplicada. Se creó un respaldo cifrado, apareció la hoja de compartir del sistema y se restauró el archivo desde Descargas; la operación mostró confirmación y copia local previa.

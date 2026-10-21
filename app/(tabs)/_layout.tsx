@@ -13,6 +13,9 @@ export default function TabLayout() {
     }}>
       <Tabs.Screen name="index" options={{ title: 'Inicio', tabBarLabel: 'Inicio', tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 21 }}>⌂</Text> }} />
       <Tabs.Screen name="products" options={{ title: 'Productos', tabBarLabel: 'Productos', tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 19 }}>▦</Text> }} />
+      <Tabs.Screen name="sale" options={{ title: 'Venta', tabBarLabel: 'Venta', tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 19 }}>＋</Text> }} />
+      <Tabs.Screen name="cash" options={{ title: 'Caja', tabBarLabel: 'Caja', tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 19 }}>◷</Text> }} />
+      <Tabs.Screen name="backup" options={{ title: 'Respaldos', tabBarLabel: 'Respaldo', tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 19 }}>↥</Text> }} />
     </Tabs>
   );
 }
