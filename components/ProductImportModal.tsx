@@ -3,7 +3,7 @@ import { ActivityIndicator, Alert, KeyboardAvoidingView, Modal, Platform, Pressa
 import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
 import * as XLSX from 'xlsx';
-import { extractText, isAvailable as isPdfExtractorAvailable } from 'expo-pdf-text-extract';
+import { extractText, getPageCount, isAvailable as isPdfExtractorAvailable } from 'expo-pdf-text-extract';
 import { useSQLiteContext } from 'expo-sqlite';
 import { theme } from '@/constants/Theme';
 import { importProducts, type ProductInput } from '@/src/database/productsRepository';
@@ -63,16 +63,17 @@ export function ProductImportModal({ visible, onClose, onImported }: Props) {
         parsed = parseProductMatrix(XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: '', raw: false }) as unknown[][]);
       } else if (extension === 'pdf') {
         if (!isPdfExtractorAvailable()) throw new Error('Para leer PDF instala y abre la app en una development build (no Expo Go).');
+        const pdfPageCount = await getPageCount(asset.uri);
+        if (pdfPageCount > 20) throw new Error('Este PDF tiene más de 20 páginas. Divide el catálogo para importarlo.');
         const pdfText = await extractText(asset.uri);
         try {
           parsed = parseProductText(pdfText);
         } catch {
           const { PdfPageImage } = await import('@dariyd/react-native-pdf-page-image');
-          const { pageCount } = await PdfPageImage.open(asset.uri);
+          await PdfPageImage.open(asset.uri);
           try {
-            if (pageCount > 20) throw new Error('Este PDF tiene más de 20 páginas. Divide el catálogo para importarlo.');
             const recognizedPages: string[] = [];
-            for (let page = 0; page < pageCount; page += 1) {
+            for (let page = 0; page < pdfPageCount; page += 1) {
               const image = await PdfPageImage.generate(asset.uri, page, 1, { maxDimension: 1800 });
               const { recognizeText } = await import('expo-ocr-kit');
               recognizedPages.push((await recognizeText(image.uri)).text);
