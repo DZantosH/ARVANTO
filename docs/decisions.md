@@ -7,8 +7,10 @@
 | Datos | SQLite con expo-sqlite | Persistencia en dispositivo y uso sin conexión; no requiere servidor para vender en fases posteriores. |
 | Estado | Estado local de React por pantalla | No hay estado global de negocio todavía; SQLite seguirá siendo la fuente de verdad. |
 | Dinero | Enteros en centavos | Evita errores de coma flotante al sumar importes. |
+| Diseño visual | Paleta naranja industrial y grafito, superficies planas y radios de 0–4 dp | La jerarquía se apoya en espaciado, contraste y texto; evita tarjetas e iconos decorativos repetidos. Los colores, radios, espaciado y escala tipográfica viven en `constants/Theme.ts`. |
+| Texto sobre naranja | Grafito sobre naranja y naranja oscuro para texto sobre blanco | Mantiene contraste legible sin cambiar el naranja de marca definido en la guía visual. |
 | Demo | Sin seed automático | No presentar cifras ficticias como ventas reales. |
-| Nombre | FerrePOS interno provisional | Nombre solicitado por la especificación; no se afirma disponibilidad de marca. |
-| Identidad visual | Ícono propio de tienda con techo verde, toldo ámbar y puerta clara | Sustituye los recursos genéricos de la plantilla; SVG fuente en `assets/images/`. |
+| Nombre | FerrePOS interno provisional | No se afirma disponibilidad de marca. |
+| Identidad visual | Marca propia con grafito, naranja y blanco | Ícono de tienda original; sus fuentes SVG están en `assets/images/`. |
 
 No se añadieron Zod, formularios, ORM, analítica ni gráficas porque todavía no existe un flujo que los necesite.

@@ -3,8 +3,8 @@
     <path d="M248 434 512 220l264 214" />
     <path d="M318 411v392h388V411" />
   </g>
-  <path fill="#E89B3C" d="M334 465h356v132H334z" />
-  <path fill="#102D27" d="M394 465h34v132h-34zm102 0h34v132h-34zm102 0h34v132h-34z" />
+  <path fill="#FF6720" d="M334 465h356v132H334z" />
+  <path fill="#202020" d="M394 465h34v132h-34zm102 0h34v132h-34zm102 0h34v132h-34z" />
   <path fill="#FFFFFF" d="M429 620h166v183H429z" />
-  <circle cx="566" cy="712" r="10" fill="#145A48" />
+  <circle cx="566" cy="712" r="10" fill="#202020" />
 </svg>

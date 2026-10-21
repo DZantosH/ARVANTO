@@ -17,6 +17,6 @@ export function StatusPill({ label }: { label: string }) {
 const styles = StyleSheet.create({
   title: { color: theme.colors.text, fontSize: 17, fontWeight: '800' },
   status: { flexDirection: 'row', alignItems: 'center' },
-  dot: { width: 7, height: 7, backgroundColor: '#4C9A76', borderRadius: 4, marginRight: 5 },
+  dot: { width: 7, height: 7, backgroundColor: theme.colors.success, borderRadius: theme.radius.control, marginRight: 5 },
   label: { color: theme.colors.muted, fontSize: 11, fontWeight: '600' },
 });

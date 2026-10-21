@@ -57,11 +57,11 @@ export default function DashboardScreen() {
 
       <View style={styles.quickTitle}><SectionHeading title="Accesos rápidos" /></View>
       <View style={styles.quickGrid}>
-        <QuickAction icon="＋" title="Nueva venta" color={theme.colors.primary} href={'/sale' as Href} />
-        <QuickAction icon="▦" title="Productos" color="#34668E" href={'/products' as Href} />
-        <QuickAction icon="↕" title="Inventario" color="#A36B28" />
-        <QuickAction icon="◷" title="Corte de caja" color="#7B5D96" href={'/cash' as Href} />
-        <QuickAction icon="↥" title="Respaldos" color="#64748B" href={'/backup' as Href} />
+        <QuickAction icon="＋" title="Nueva venta" href={'/sale' as Href} />
+        <QuickAction icon="▦" title="Productos" href={'/products' as Href} />
+        <QuickAction icon="↕" title="Inventario" />
+        <QuickAction icon="◷" title="Corte de caja" href={'/cash' as Href} />
+        <QuickAction icon="↥" title="Respaldos" href={'/backup' as Href} />
       </View>
 
       {error ? <Pressable onPress={() => void loadSummary()}><Text style={styles.error}>{error} · Toca para reintentar</Text></Pressable> : null}
@@ -70,8 +70,8 @@ export default function DashboardScreen() {
   );
 }
 
-function QuickAction({ icon, title, color, href }: { icon: string; title: string; color: string; href?: Href }) {
-  const content = <View style={styles.quickCard}><View style={[styles.quickIcon, { backgroundColor: `${color}14` }]}><Text style={[styles.quickIconText, { color }]}>{icon}</Text></View><Text style={styles.quickText}>{title}</Text><Text style={styles.chevron}>›</Text></View>;
+function QuickAction({ icon, title, href }: { icon: string; title: string; href?: Href }) {
+  const content = <View style={styles.quickCard}><Text style={styles.quickIconText}>{icon}</Text><Text style={styles.quickText}>{title}</Text><Text style={styles.chevron}>›</Text></View>;
   return href ? <Link href={href} asChild><Pressable accessibilityRole="button">{content}</Pressable></Link> : content;
 }
 
@@ -79,30 +79,29 @@ const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: theme.colors.background },
   content: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 30, maxWidth: 900, width: '100%', alignSelf: 'center' },
   topline: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-  eyebrow: { color: theme.colors.primary, fontSize: 11, letterSpacing: 1.6, fontWeight: '800' },
+  eyebrow: { color: theme.colors.primaryText, fontSize: 11, letterSpacing: 1.6, fontWeight: '800' },
   title: { color: theme.colors.text, fontSize: 29, fontWeight: '800', marginTop: 5 },
-  avatar: { width: 44, height: 44, borderRadius: 16, backgroundColor: theme.colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
-  avatarText: { color: theme.colors.primary, fontWeight: '800', fontSize: 18 },
-  hero: { padding: 22, backgroundColor: theme.colors.dark, borderRadius: 22, overflow: 'hidden' },
-  heroIcon: { position: 'absolute', right: 19, top: 14, width: 46, height: 46, borderRadius: 16, backgroundColor: '#FFFFFF14', alignItems: 'center', justifyContent: 'center' },
-  heroIconText: { color: '#E89B3C', fontSize: 27 },
-  heroEyebrow: { color: '#A8C2B8', fontSize: 11, letterSpacing: 1.5, fontWeight: '700' },
+  avatar: { width: 44, height: 44, borderRadius: theme.radius.control, backgroundColor: theme.colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
+  avatarText: { color: theme.colors.primaryText, fontWeight: '800', fontSize: 18 },
+  hero: { padding: 22, backgroundColor: theme.colors.dark, borderRadius: theme.radius.control, overflow: 'hidden' },
+  heroIcon: { position: 'absolute', right: 19, top: 14 },
+  heroIconText: { color: theme.colors.accent, fontSize: 27 },
+  heroEyebrow: { color: theme.colors.darkMuted, fontSize: 11, letterSpacing: 1.5, fontWeight: '700' },
   heroAmount: { color: '#FFFFFF', fontSize: 36, fontWeight: '800', marginTop: 9 },
-  heroFoot: { color: '#A8C2B8', fontSize: 13, marginTop: 5 },
+  heroFoot: { color: theme.colors.darkMuted, fontSize: 13, marginTop: 5 },
   heroDivider: { height: 1, backgroundColor: '#FFFFFF24', marginTop: 19 },
   heroBottom: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 11 },
   heroFootStrong: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
   sectionTitleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 25, marginBottom: 12 },
   metricRow: { flexDirection: 'row', gap: 12 },
-  metricCard: { flex: 1, backgroundColor: theme.colors.surface, borderRadius: theme.radius.card, padding: 16, borderWidth: 1, borderColor: theme.colors.border },
+  metricCard: { flex: 1, paddingVertical: 10, paddingHorizontal: 4, borderBottomWidth: 1, borderColor: theme.colors.border },
   metricLabel: { color: theme.colors.muted, fontSize: 12, fontWeight: '600' },
   metricValue: { color: theme.colors.text, fontSize: 22, fontWeight: '800', marginTop: 9 },
   metricHint: { color: theme.colors.muted, fontSize: 11, marginTop: 4 },
   quickTitle: { marginTop: 25, marginBottom: 12 },
   quickGrid: { gap: 9 },
-  quickCard: { minHeight: 64, flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.surface, borderRadius: 15, padding: 11, borderWidth: 1, borderColor: theme.colors.border },
-  quickIcon: { width: 40, height: 40, borderRadius: 13, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
-  quickIconText: { fontSize: 21, fontWeight: '700' },
+  quickCard: { minHeight: 52, flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderColor: theme.colors.border, paddingVertical: 7 },
+  quickIconText: { color: theme.colors.primaryText, width: 28, fontSize: 19, fontWeight: '700' },
   quickText: { color: theme.colors.text, fontSize: 14, fontWeight: '700', flex: 1 },
   chevron: { color: '#9AA6AF', fontSize: 26, paddingHorizontal: 5 },
   error: { color: theme.colors.danger, fontSize: 12, marginTop: 15 },

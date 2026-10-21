@@ -22,6 +22,7 @@ Para probar en Android con emulador, inicia el emulador y ejecuta `npm run andro
 - Venta: carrito, pagos en efectivo/tarjeta/transferencia, cambio, ticket y descuento de stock atómico.
 - Caja: apertura, entradas/retiros, corte y diferencia por turno.
 - Respaldos: exportación cifrada y restauración validada.
+- Interfaz: paleta naranja y grafito, listas planas, controles rectangulares y contenido con ancho máximo en pantallas grandes.
 
 No se carga información de demostración. La primera venta requiere productos registrados y un turno de caja abierto.
 
