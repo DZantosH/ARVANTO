@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSQLiteContext } from 'expo-sqlite';
 import { ProductFormModal } from '@/components/ProductFormModal';
+import { ProductImportModal } from '@/components/ProductImportModal';
 import { theme } from '@/constants/Theme';
 import { createProduct, searchProducts, setProductActive, updateProduct, type Product, type ProductInput, type ProductStatusFilter } from '@/src/database/productsRepository';
 import { formatCurrencyFromCents } from '@/src/domain/money';
@@ -23,6 +24,7 @@ export default function ProductsScreen() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState('');
   const [formVisible, setFormVisible] = useState(false);
+  const [importVisible, setImportVisible] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
 
   const loadFirstPage = useCallback(async () => {
@@ -92,10 +94,15 @@ export default function ProductsScreen() {
           <Text style={styles.title}>Productos</Text>
           <Text style={styles.subtitle}>Precios y existencias de tu tienda</Text>
         </View>
-        <Pressable accessibilityRole="button" onPress={openNew} style={styles.addButton}>
-          <Text style={styles.addIcon}>＋</Text>
-          <Text style={styles.addText}>Nuevo</Text>
-        </Pressable>
+        <View style={styles.headerActions}>
+          <Pressable accessibilityRole="button" onPress={() => setImportVisible(true)} style={styles.importButton}>
+            <Text style={styles.importText}>Importar</Text>
+          </Pressable>
+          <Pressable accessibilityRole="button" onPress={openNew} style={styles.addButton}>
+            <Text style={styles.addIcon}>＋</Text>
+            <Text style={styles.addText}>Nuevo</Text>
+          </Pressable>
+        </View>
       </View>
 
       <View style={styles.searchBox}>
@@ -147,6 +154,11 @@ export default function ProductsScreen() {
         onSave={saveProduct}
         onSetActive={changeProductStatus}
       /> : null}
+      {importVisible ? <ProductImportModal
+        visible={importVisible}
+        onClose={() => setImportVisible(false)}
+        onImported={async () => { await loadFirstPage(); }}
+      /> : null}
     </View>
   );
 }
@@ -189,12 +201,15 @@ const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: theme.colors.background },
   header: { paddingTop: 19, paddingHorizontal: 20, paddingBottom: 17, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 14 },
   headerCopy: { flex: 1 },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 7 },
   eyebrow: { color: theme.colors.primary, fontSize: 10, letterSpacing: 1.5, fontWeight: '800' },
   title: { color: theme.colors.text, fontSize: 28, fontWeight: '800', marginTop: 3 },
   subtitle: { color: theme.colors.muted, fontSize: 12, marginTop: 4 },
   addButton: { minHeight: 46, paddingHorizontal: 14, borderRadius: theme.radius.control, backgroundColor: theme.colors.primary, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 5 },
   addIcon: { color: '#FFFFFF', fontSize: 20, fontWeight: '600' },
   addText: { color: '#FFFFFF', fontSize: 13, fontWeight: '800' },
+  importButton: { minHeight: 44, paddingHorizontal: 10, borderRadius: theme.radius.control, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface, alignItems: 'center', justifyContent: 'center' },
+  importText: { color: theme.colors.primary, fontSize: 12, fontWeight: '800' },
   searchBox: { flexDirection: 'row', alignItems: 'center', minHeight: 49, marginHorizontal: 20, paddingHorizontal: 12, borderRadius: theme.radius.control, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border },
   searchIcon: { fontSize: 22, color: theme.colors.muted, marginRight: 9 },
   searchInput: { flex: 1, color: theme.colors.text, fontSize: 14, paddingVertical: 10 },

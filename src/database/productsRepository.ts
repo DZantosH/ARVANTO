@@ -90,6 +90,37 @@ export async function createProduct(db: SQLiteDatabase, input: ProductInput): Pr
   return id;
 }
 
+export async function importProducts(db: SQLiteDatabase, inputs: ProductInput[]): Promise<void> {
+  if (!inputs.length) return;
+  await db.withExclusiveTransactionAsync(async (transaction) => {
+    const seenSkus = new Set<string>();
+    for (const input of inputs) {
+      const sku = normalizeSku(input.sku);
+      if (sku) {
+        const key = sku.toLocaleUpperCase('en-US');
+        if (seenSkus.has(key)) throw new Error('duplicate_import_sku');
+        seenSkus.add(key);
+        const existing = await transaction.getFirstAsync<{ id: string }>(
+          'SELECT id FROM products WHERE sku = ? COLLATE NOCASE LIMIT 1', sku,
+        );
+        if (existing) throw new Error('duplicate_existing_sku');
+      }
+      await transaction.runAsync(
+        `INSERT INTO products (id, sku, name, description, cost_cents, price_cents, stock_quantity, minimum_stock)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        Crypto.randomUUID(),
+        sku,
+        input.name.trim(),
+        input.description.trim(),
+        input.costCents,
+        input.priceCents,
+        input.openingStock ?? 0,
+        input.minimumStock,
+      );
+    }
+  });
+}
+
 export async function updateProduct(db: SQLiteDatabase, id: string, input: ProductInput): Promise<void> {
   await db.runAsync(
     `UPDATE products
