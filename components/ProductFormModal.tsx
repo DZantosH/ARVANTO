@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Alert, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, type TextInputProps, View } from 'react-native';
-import { theme } from '@/constants/Theme';
+import { useAppTheme } from '@/src/ui/ThemeProvider';
 import { validateProductForm, type ProductFormErrors, type ProductFormValues } from '@/src/domain/productValidation';
 import type { Product, ProductInput } from '@/src/database/productsRepository';
 
@@ -17,6 +17,7 @@ const emptyValues: ProductFormValues = {
 };
 
 export function ProductFormModal({ visible, product, onClose, onSave, onSetActive }: Props) {
+  const { styles } = useThemeStyles();
   const [errors, setErrors] = useState<ProductFormErrors>({});
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -159,6 +160,7 @@ type FieldProps = {
 } & Omit<TextInputProps, 'value' | 'onChangeText'>;
 
 function Field({ label, value, onChangeText, error, prefix, ...inputProps }: FieldProps) {
+  const { theme, styles } = useThemeStyles();
   return (
     <View style={styles.field}>
       <Text style={styles.label}>{label}</Text>
@@ -178,7 +180,9 @@ function Field({ label, value, onChangeText, error, prefix, ...inputProps }: Fie
   );
 }
 
-const styles = StyleSheet.create({
+function useThemeStyles() {
+  const { theme } = useAppTheme();
+  const styles = useMemo(() => StyleSheet.create({
   screen: { flex: 1, backgroundColor: theme.colors.background },
   header: { paddingHorizontal: 20, paddingTop: 18, paddingBottom: 15, backgroundColor: theme.colors.surface, borderBottomWidth: 1, borderBottomColor: theme.colors.border, flexDirection: 'row', alignItems: 'center' },
   headerCopy: { flex: 1 },
@@ -210,4 +214,6 @@ const styles = StyleSheet.create({
   saveButton: { flex: 1.5, minHeight: 50, borderRadius: theme.radius.control, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.primary },
   saveText: { color: theme.colors.onPrimary, fontWeight: '800' },
   disabled: { opacity: 0.55 },
-});
+}), [theme]);
+  return { theme, styles };
+}

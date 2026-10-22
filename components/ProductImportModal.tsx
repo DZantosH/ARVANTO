@@ -5,7 +5,7 @@ import { File } from 'expo-file-system';
 import * as XLSX from 'xlsx';
 import { extractText, getPageCount, isAvailable as isPdfExtractorAvailable } from 'expo-pdf-text-extract';
 import { useSQLiteContext } from 'expo-sqlite';
-import { theme } from '@/constants/Theme';
+import { useAppTheme } from '@/src/ui/ThemeProvider';
 import { importProducts, type ProductInput } from '@/src/database/productsRepository';
 import { parseProductMatrix, parseProductText, type ProductImportDraft } from '@/src/domain/productImport';
 import { validateProductForm, type ProductFormValues } from '@/src/domain/productValidation';
@@ -16,6 +16,7 @@ const allowedExtensions = ['xlsx', 'xls', 'pdf', 'png', 'jpg', 'jpeg'];
 const maxImportRows = 500;
 
 export function ProductImportModal({ visible, onClose, onImported }: Props) {
+  const { theme, styles } = useThemeStyles();
   const db = useSQLiteContext();
   const [rows, setRows] = useState<Row[]>([]);
   const [fileName, setFileName] = useState('');
@@ -204,7 +205,9 @@ export function ProductImportModal({ visible, onClose, onImported }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+function useThemeStyles() {
+  const { theme } = useAppTheme();
+  const styles = useMemo(() => StyleSheet.create({
   screen: { flex: 1, backgroundColor: theme.colors.background },
   header: { paddingHorizontal: 20, paddingTop: 18, paddingBottom: 15, backgroundColor: theme.colors.surface, borderBottomWidth: 1, borderBottomColor: theme.colors.border, flexDirection: 'row', alignItems: 'center' },
   headerCopy: { flex: 1 }, eyebrow: { color: theme.colors.primaryText, fontSize: 10, letterSpacing: 1.5, fontWeight: '800' }, title: { color: theme.colors.text, fontSize: 23, fontWeight: '800', marginTop: 4 },
@@ -215,4 +218,6 @@ const styles = StyleSheet.create({
   rowCard: { backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.control, padding: 14, gap: 10 }, rowInvalid: { borderColor: theme.colors.danger }, rowHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, rowNumber: { color: theme.colors.text, fontSize: 13, fontWeight: '800' }, skipButton: { minHeight: 44, minWidth: 68, paddingHorizontal: 12, paddingVertical: 7, justifyContent: 'center', alignItems: 'center' }, skipText: { color: theme.colors.primaryText, fontSize: 12, fontWeight: '700' },
   field: { gap: 5 }, label: { color: theme.colors.muted, fontSize: 11, fontWeight: '700' }, input: { minHeight: 43, borderRadius: theme.radius.control, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.background, color: theme.colors.text, fontSize: 14, paddingHorizontal: 11, paddingVertical: 8 }, rowError: { color: theme.colors.danger, fontSize: 11, lineHeight: 16 },
   footer: { flexDirection: 'row', gap: 10, padding: 16, borderTopWidth: 1, borderTopColor: theme.colors.border, backgroundColor: theme.colors.surface }, cancelButton: { flex: 1, minHeight: 50, borderRadius: theme.radius.control, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.background }, cancelText: { color: theme.colors.text, fontWeight: '700' }, saveButton: { flex: 1.5, minHeight: 50, borderRadius: theme.radius.control, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.primary }, saveText: { color: theme.colors.onPrimary, fontWeight: '800' }, disabled: { opacity: 0.5 },
-});
+}), [theme]);
+  return { theme, styles };
+}

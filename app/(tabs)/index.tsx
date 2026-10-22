@@ -1,13 +1,14 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useState, useMemo } from 'react';
 import { ScrollView, StyleSheet, Text, View, Pressable, RefreshControl } from 'react-native';
 import { Link, type Href, useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { getDashboardSummary, type DashboardSummary } from '@/src/database/dashboardRepository';
 import { formatCurrencyFromCents } from '@/src/domain/money';
-import { theme } from '@/constants/Theme';
+import { useAppTheme } from '@/src/ui/ThemeProvider';
 import { SectionHeading, StatusPill } from '@/components/SectionHeading';
 
 export default function DashboardScreen() {
+  const { theme, styles } = useThemeStyles();
   const db = useSQLiteContext();
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -71,11 +72,14 @@ export default function DashboardScreen() {
 }
 
 function QuickAction({ icon, title, href }: { icon: string; title: string; href?: Href }) {
+  const { styles } = useThemeStyles();
   const content = <View style={styles.quickCard}><Text style={styles.quickIconText}>{icon}</Text><Text style={styles.quickText}>{title}</Text><Text style={styles.chevron}>›</Text></View>;
   return href ? <Link href={href} asChild><Pressable accessibilityRole="button">{content}</Pressable></Link> : content;
 }
 
-const styles = StyleSheet.create({
+function useThemeStyles() {
+  const { theme } = useAppTheme();
+  const styles = useMemo(() => StyleSheet.create({
   page: { flex: 1, backgroundColor: theme.colors.background },
   content: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 30, maxWidth: 900, width: '100%', alignSelf: 'center' },
   topline: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
@@ -106,4 +110,6 @@ const styles = StyleSheet.create({
   chevron: { color: '#9AA6AF', fontSize: 26, paddingHorizontal: 5 },
   error: { color: theme.colors.danger, fontSize: 12, marginTop: 15 },
   footnote: { textAlign: 'center', color: theme.colors.muted, fontSize: 11, marginTop: 20 },
-});
+}), [theme]);
+  return { theme, styles };
+}

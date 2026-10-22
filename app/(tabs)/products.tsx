@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useMemo } from 'react';
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSQLiteContext } from 'expo-sqlite';
 import { ProductFormModal } from '@/components/ProductFormModal';
 import { ProductImportModal } from '@/components/ProductImportModal';
-import { theme } from '@/constants/Theme';
+import { useAppTheme } from '@/src/ui/ThemeProvider';
 import { createProduct, searchProducts, setProductActive, updateProduct, type Product, type ProductInput, type ProductStatusFilter } from '@/src/database/productsRepository';
 import { formatCurrencyFromCents } from '@/src/domain/money';
 
@@ -14,6 +14,7 @@ const filters: { id: ProductStatusFilter; label: string }[] = [
 ];
 
 export default function ProductsScreen() {
+  const { theme, styles } = useThemeStyles();
   const db = useSQLiteContext();
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState<ProductStatusFilter>('active');
@@ -164,6 +165,7 @@ export default function ProductsScreen() {
 }
 
 function ProductRow({ product, onPress }: { product: Product; onPress: () => void }) {
+  const { styles } = useThemeStyles();
   const isLow = product.minimum_stock > 0 && product.stock_quantity <= product.minimum_stock;
   return (
     <Pressable accessibilityRole="button" accessibilityLabel={`Editar ${product.name}`} onPress={onPress} style={({ pressed }) => [styles.productCard, pressed && styles.pressed]}>
@@ -187,6 +189,7 @@ function ProductRow({ product, onPress }: { product: Product; onPress: () => voi
 }
 
 function EmptyState({ hasQuery, onAdd }: { hasQuery: boolean; onAdd: () => void }) {
+  const { styles } = useThemeStyles();
   return (
     <View style={styles.emptyState}>
       <View style={styles.emptyIcon}><Text style={styles.emptyIconText}>▦</Text></View>
@@ -197,7 +200,9 @@ function EmptyState({ hasQuery, onAdd }: { hasQuery: boolean; onAdd: () => void 
   );
 }
 
-const styles = StyleSheet.create({
+function useThemeStyles() {
+  const { theme } = useAppTheme();
+  const styles = useMemo(() => StyleSheet.create({
   page: { flex: 1, width: '100%', maxWidth: 1000, alignSelf: 'center', backgroundColor: theme.colors.background },
   header: { paddingTop: 19, paddingHorizontal: 20, paddingBottom: 17, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 14 },
   headerCopy: { flex: 1 },
@@ -240,7 +245,7 @@ const styles = StyleSheet.create({
   badges: { flexDirection: 'row', gap: 5 },
   lowBadge: { backgroundColor: theme.colors.warningSoft, paddingHorizontal: 8, paddingVertical: 4, borderRadius: theme.radius.control },
   lowBadgeText: { color: theme.colors.warning, fontSize: 10, fontWeight: '800' },
-  inactiveBadge: { backgroundColor: '#EEF1F3', paddingHorizontal: 8, paddingVertical: 4, borderRadius: theme.radius.control },
+  inactiveBadge: { backgroundColor: theme.colors.background, paddingHorizontal: 8, paddingVertical: 4, borderRadius: theme.radius.control },
   inactiveBadgeText: { color: theme.colors.muted, fontSize: 9, fontWeight: '800' },
   loadMore: { minHeight: 47, justifyContent: 'center', alignItems: 'center' },
   loadMoreText: { color: theme.colors.primaryText, fontWeight: '700', fontSize: 12 },
@@ -253,4 +258,6 @@ const styles = StyleSheet.create({
   emptyDescription: { color: theme.colors.muted, fontSize: 12, lineHeight: 18, textAlign: 'center', marginTop: 8, maxWidth: 300 },
   emptyButton: { marginTop: 18, paddingHorizontal: 17, paddingVertical: 12, borderRadius: theme.radius.control, backgroundColor: theme.colors.primary },
   emptyButtonText: { color: theme.colors.onPrimary, fontWeight: '800', fontSize: 12 },
-});
+}), [theme]);
+  return { theme, styles };
+}

@@ -1,14 +1,15 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useState, useMemo } from 'react';
 import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import { theme } from '@/constants/Theme';
+import { useAppTheme } from '@/src/ui/ThemeProvider';
 import { addCashMovement, closeCashSession, getCashOverview, openCashSession, type CashOverview } from '@/src/database/posRepository';
 import { formatCurrencyFromCents, parseCurrencyToCents } from '@/src/domain/money';
 
 type ActionKind = 'open' | 'in' | 'out' | 'close';
 
 export default function CashScreen() {
+  const { theme, styles } = useThemeStyles();
   const db = useSQLiteContext();
   const [overview, setOverview] = useState<CashOverview | null>(null);
   const [action, setAction] = useState<ActionKind | null>(null);
@@ -61,10 +62,12 @@ export default function CashScreen() {
 }
 
 function ActionButton({ title, subtitle, danger, onPress }: { title: string; subtitle: string; danger?: boolean; onPress: () => void }) {
+  const { styles } = useThemeStyles();
   return <Pressable onPress={onPress} style={[styles.actionButton, danger && styles.actionDanger]}><Text style={[styles.actionTitle, danger && styles.outAmount]}>{title}</Text><Text style={styles.actionSubtitle}>{subtitle}</Text></Pressable>;
 }
 
 function CashActionModal({ kind, busy, expectedCash, onClose, onSubmit }: { kind: ActionKind | null; busy: boolean; expectedCash: number; onClose: () => void; onSubmit: (amount: string, reason: string) => Promise<void> }) {
+  const { styles } = useThemeStyles();
   const [amount, setAmount] = useState('');
   const [reason, setReason] = useState('');
   const [error, setError] = useState('');
@@ -92,6 +95,10 @@ function CashActionModal({ kind, busy, expectedCash, onClose, onSubmit }: { kind
   </Modal>;
 }
 
-const styles = StyleSheet.create({
+function useThemeStyles() {
+  const { theme } = useAppTheme();
+  const styles = useMemo(() => StyleSheet.create({
   loading: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.colors.background }, page: { flex: 1, backgroundColor: theme.colors.background }, content: { padding: 20, paddingBottom: 35, maxWidth: 850, width: '100%', alignSelf: 'center' }, header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }, eyebrow: { color: theme.colors.primaryText, fontSize: 10, fontWeight: '800', letterSpacing: 1.4 }, title: { color: theme.colors.text, fontSize: 29, fontWeight: '900', marginTop: 4 }, badge: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: theme.radius.control }, openBadge: { backgroundColor: theme.colors.primarySoft }, closedBadge: { backgroundColor: theme.colors.background }, badgeText: { color: theme.colors.primaryText, fontWeight: '800', fontSize: 11 }, error: { color: theme.colors.danger, fontSize: 12, marginBottom: 10 }, hero: { backgroundColor: theme.colors.dark, borderRadius: theme.radius.control, padding: 21, marginBottom: 22 }, heroLabel: { color: theme.colors.darkMuted, fontSize: 10, fontWeight: '800', letterSpacing: 1.3 }, heroAmount: { color: '#FFFFFF', fontSize: 34, fontWeight: '900', marginTop: 8 }, heroFoot: { color: theme.colors.darkMuted, fontSize: 12, marginTop: 7 }, divider: { height: 1, backgroundColor: '#FFFFFF24', marginTop: 15 }, sectionTitle: { color: theme.colors.text, fontSize: 16, fontWeight: '800', marginBottom: 10 }, methodGrid: { flexDirection: 'row', gap: 9, marginBottom: 21 }, methodCard: { flex: 1, backgroundColor: theme.colors.surface, borderRadius: theme.radius.control, padding: 13, borderWidth: 1, borderColor: theme.colors.border }, methodName: { color: theme.colors.muted, fontSize: 10, fontWeight: '700' }, methodAmount: { color: theme.colors.text, fontSize: 14, fontWeight: '800', marginTop: 7 }, actionRow: { flexDirection: 'row', gap: 10, marginBottom: 10 }, actionButton: { minHeight: 48, flex: 1, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.control, padding: 13, justifyContent: 'center' }, actionDanger: { backgroundColor: theme.colors.dangerSoft, borderColor: theme.colors.dangerSoft }, actionTitle: { color: theme.colors.primaryText, fontSize: 14, fontWeight: '800' }, actionSubtitle: { color: theme.colors.muted, fontSize: 10, marginTop: 4 }, outAmount: { color: theme.colors.danger }, movement: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderColor: theme.colors.border }, movementCopy: { flex: 1 }, movementReason: { color: theme.colors.text, fontSize: 13, fontWeight: '700' }, movementDate: { color: theme.colors.muted, fontSize: 10, marginTop: 4 }, movementAmount: { color: theme.colors.primaryText, fontWeight: '800' }, empty: { color: theme.colors.muted, fontSize: 12, paddingVertical: 12 }, closeButton: { minHeight: 52, borderRadius: theme.radius.control, backgroundColor: theme.colors.dark, alignItems: 'center', justifyContent: 'center', marginTop: 20 }, closeText: { color: '#FFFFFF', fontWeight: '800', fontSize: 14 }, emptyCard: { backgroundColor: theme.colors.surface, borderRadius: theme.radius.control, borderColor: theme.colors.border, borderWidth: 1, padding: 22, alignItems: 'center', marginTop: 45 }, emptyIcon: { minHeight: 32, alignItems: 'center', justifyContent: 'center' }, emptyIconText: { color: theme.colors.primaryText, fontSize: 28 }, emptyTitle: { color: theme.colors.text, fontWeight: '900', fontSize: 18, marginTop: 15 }, emptyDescription: { color: theme.colors.muted, fontSize: 12, lineHeight: 18, textAlign: 'center', marginVertical: 9 }, primaryButton: { minHeight: 48, paddingHorizontal: 18, borderRadius: theme.radius.control, backgroundColor: theme.colors.primary, alignItems: 'center', justifyContent: 'center' }, primaryText: { color: theme.colors.onPrimary, fontSize: 14, fontWeight: '800' }, modalPage: { flex: 1, padding: 22, backgroundColor: theme.colors.background }, modalTitle: { color: theme.colors.text, fontSize: 24, fontWeight: '900', marginTop: 5, marginBottom: 14 }, expected: { color: theme.colors.primaryText, fontSize: 13, fontWeight: '700', marginBottom: 5 }, fieldLabel: { color: theme.colors.text, fontSize: 12, fontWeight: '700', marginTop: 10, marginBottom: 5 }, input: { backgroundColor: theme.colors.surface, minHeight: 48, borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.control, paddingHorizontal: 12, color: theme.colors.text, fontSize: 15 }, modalActions: { flexDirection: 'row', gap: 10, marginTop: 20 }, cancelButton: { flex: 0.7, minHeight: 48, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.background, borderRadius: theme.radius.control }, cancelText: { color: theme.colors.text, fontWeight: '700' },
-});
+}), [theme]);
+  return { theme, styles };
+}
