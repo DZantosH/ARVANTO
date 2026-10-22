@@ -73,29 +73,31 @@ export async function searchProducts(
   return { items, total: count?.total ?? 0 };
 }
 
-export async function createProduct(db: SQLiteDatabase, input: ProductInput): Promise<string> {
+export async function createProduct(db: SQLiteDatabase, input: ProductInput, createdBy = 'Administrador'): Promise<string> {
   const id = Crypto.randomUUID();
-  await db.runAsync(
-    `INSERT INTO products (id, sku, name, description, cost_cents, price_cents, stock_quantity, minimum_stock)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    id,
-    normalizeSku(input.sku),
-    input.name.trim(),
-    input.description.trim(),
-    input.costCents,
-    input.priceCents,
-    input.openingStock ?? 0,
-    input.minimumStock,
-  );
+  const openingStock = input.openingStock ?? 0;
+  await db.withExclusiveTransactionAsync(async (txn) => {
+    await txn.runAsync(
+      `INSERT INTO products (id, sku, name, description, cost_cents, price_cents, stock_quantity, minimum_stock)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      id, normalizeSku(input.sku), input.name.trim(), input.description.trim(), input.costCents, input.priceCents, openingStock, input.minimumStock,
+    );
+    if (openingStock > 0) await txn.runAsync(
+      `INSERT INTO inventory_movements (id, product_id, kind, quantity_delta, reference_id, reason, created_by)
+       VALUES (?, ?, 'adjustment', ?, ?, 'Existencia inicial', ?)`, Crypto.randomUUID(), id, openingStock, id, createdBy,
+    );
+  });
   return id;
 }
 
-export async function importProducts(db: SQLiteDatabase, inputs: ProductInput[]): Promise<void> {
+export async function importProducts(db: SQLiteDatabase, inputs: ProductInput[], createdBy = 'Administrador'): Promise<void> {
   if (!inputs.length) return;
   await db.withExclusiveTransactionAsync(async (transaction) => {
     const seenSkus = new Set<string>();
     for (const input of inputs) {
       const sku = normalizeSku(input.sku);
+      const productId = Crypto.randomUUID();
+      const openingStock = input.openingStock ?? 0;
       if (sku) {
         const key = sku.toLocaleUpperCase('en-US');
         if (seenSkus.has(key)) throw new Error('duplicate_import_sku');
@@ -108,14 +110,19 @@ export async function importProducts(db: SQLiteDatabase, inputs: ProductInput[])
       await transaction.runAsync(
         `INSERT INTO products (id, sku, name, description, cost_cents, price_cents, stock_quantity, minimum_stock)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        Crypto.randomUUID(),
+        productId,
         sku,
         input.name.trim(),
         input.description.trim(),
         input.costCents,
         input.priceCents,
-        input.openingStock ?? 0,
+        openingStock,
         input.minimumStock,
+      );
+      if (openingStock > 0) await transaction.runAsync(
+        `INSERT INTO inventory_movements (id, product_id, kind, quantity_delta, reference_id, reason, created_by)
+         VALUES (?, ?, 'adjustment', ?, ?, 'Existencia inicial', ?)`,
+        Crypto.randomUUID(), productId, openingStock, productId, createdBy,
       );
     }
   });

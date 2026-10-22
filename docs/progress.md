@@ -37,3 +37,13 @@
 - Caja permite abrir turno, registrar entradas/retiros, ver cobros por método, capturar conteo y cerrar guardando diferencia.
 - El respaldo manual cifra un snapshot SQLite con AES-GCM; la restauración valida autenticidad, integridad y versión y conserva una copia previa local.
 - TypeScript, lint, SDK y 18 pruebas pasan. Build Android instalada; migración 3 aplicada. Se creó un respaldo cifrado, apareció la hoja de compartir del sistema y se restauró el archivo desde Descargas; la operación mostró confirmación y copia local previa.
+
+## Operación general
+
+- La migración 4 amplía el Kardex con compras y agrega clientes, saldos a crédito, abonos vinculados a caja, proveedores, compras con recepción de stock y usuarios locales con roles.
+- Stock inicial, ajustes manuales, ventas y recepción de compras generan movimientos auditables; los ajustes impiden dejar existencias negativas.
+- El POS permite dividir una venta entre efectivo, tarjeta, transferencia y saldo a crédito. El crédito requiere cliente, respeta el límite configurado y los abonos se registran por método dentro de un turno abierto.
+- Compras guarda proveedor, referencia, cantidades y costo unitario y recibe stock en una transacción exclusiva. Reportes reúne ventas, costo/margen estimado, compras del día, existencias valorizadas y cuentas por cobrar.
+- Se agregó acceso local por PIN (6–8 dígitos, hash con sal aleatoria), perfiles administrador/encargado/cajero, bloqueo por perfil de rutas y cierre de sesión. La primera apertura después de migrar requiere crear el administrador.
+- El ticket abre la hoja de impresión del sistema mediante Expo Print. La impresora debe estar disponible por un servicio de impresión del dispositivo; falta validar ancho y corte con el modelo de la tienda.
+- Los datos permanecen locales y sin sincronización. Esta fase requiere validación con una base preexistente y una impresora física.

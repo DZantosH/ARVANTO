@@ -5,12 +5,14 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { useAppTheme } from '@/src/ui/ThemeProvider';
 import { addCashMovement, closeCashSession, getCashOverview, openCashSession, type CashOverview } from '@/src/database/posRepository';
 import { formatCurrencyFromCents, parseCurrencyToCents } from '@/src/domain/money';
+import { useAuth } from '@/src/ui/AuthProvider';
 
 type ActionKind = 'open' | 'in' | 'out' | 'close';
 
 export default function CashScreen() {
   const { theme, styles } = useThemeStyles();
   const db = useSQLiteContext();
+  const { user } = useAuth();
   const [overview, setOverview] = useState<CashOverview | null>(null);
   const [action, setAction] = useState<ActionKind | null>(null);
   const [busy, setBusy] = useState(false);
@@ -26,10 +28,10 @@ export default function CashScreen() {
     setBusy(true);
     try {
       const amount = parseCurrencyToCents(amountText.trim() || '0');
-      if (action === 'open') await openCashSession(db, amount);
-      else if (action === 'in' || action === 'out') await addCashMovement(db, action, amount, reason);
+      if (action === 'open') await openCashSession(db, amount, user?.name);
+      else if (action === 'in' || action === 'out') await addCashMovement(db, action, amount, reason, user?.name);
       else if (action === 'close') {
-        const result = await closeCashSession(db, amount);
+        const result = await closeCashSession(db, amount, user?.name);
         setAction(null);
         await refresh();
         Alert.alert('Turno cerrado', `Efectivo esperado: ${formatCurrencyFromCents(result.expectedCashCents)}\nDiferencia: ${formatCurrencyFromCents(result.differenceCents)}${result.differenceCents < 0 ? ' (faltante)' : result.differenceCents > 0 ? ' (sobrante)' : ''}`);

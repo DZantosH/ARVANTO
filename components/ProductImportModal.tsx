@@ -6,6 +6,7 @@ import * as XLSX from 'xlsx';
 import { extractText, getPageCount, isAvailable as isPdfExtractorAvailable } from 'expo-pdf-text-extract';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useAppTheme } from '@/src/ui/ThemeProvider';
+import { useAuth } from '@/src/ui/AuthProvider';
 import { importProducts, type ProductInput } from '@/src/database/productsRepository';
 import { parseProductMatrix, parseProductText, type ProductImportDraft } from '@/src/domain/productImport';
 import { validateProductForm, type ProductFormValues } from '@/src/domain/productValidation';
@@ -17,6 +18,7 @@ const maxImportRows = 500;
 
 export function ProductImportModal({ visible, onClose, onImported }: Props) {
   const { theme, styles } = useThemeStyles();
+  const { user } = useAuth();
   const db = useSQLiteContext();
   const [rows, setRows] = useState<Row[]>([]);
   const [fileName, setFileName] = useState('');
@@ -127,7 +129,7 @@ export function ProductImportModal({ visible, onClose, onImported }: Props) {
     setError('');
     try {
       const inputs: ProductInput[] = selected.map(({ result }) => result.ok ? result.value : (() => { throw new Error('invalid_product'); })());
-      await importProducts(db, inputs);
+      await importProducts(db, inputs, user?.name);
       await onImported(inputs.length);
       setRows([]);
       setExistingSkus(new Set());

@@ -135,4 +135,90 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
       await db.runAsync('INSERT INTO schema_migrations (version) VALUES (?)', 3);
     });
   }
+
+  if ((current?.version ?? 0) < 4) {
+    await db.withTransactionAsync(async () => {
+      await db.execAsync(`
+        DROP INDEX inventory_movements_product_time_idx;
+        ALTER TABLE inventory_movements RENAME TO inventory_movements_v3;
+        CREATE TABLE inventory_movements (
+          id TEXT PRIMARY KEY NOT NULL,
+          product_id TEXT NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
+          kind TEXT NOT NULL CHECK (kind IN ('sale', 'adjustment', 'purchase')),
+          quantity_delta REAL NOT NULL CHECK (quantity_delta <> 0),
+          reference_id TEXT NOT NULL,
+          reason TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+          created_by TEXT NOT NULL DEFAULT 'Administrador'
+        );
+        INSERT INTO inventory_movements SELECT * FROM inventory_movements_v3;
+        DROP TABLE inventory_movements_v3;
+        CREATE INDEX inventory_movements_product_time_idx ON inventory_movements (product_id, created_at DESC);
+
+        CREATE TABLE customers (
+          id TEXT PRIMARY KEY NOT NULL,
+          name TEXT NOT NULL,
+          phone TEXT NOT NULL DEFAULT '',
+          email TEXT NOT NULL DEFAULT '',
+          address TEXT NOT NULL DEFAULT '',
+          credit_limit_cents INTEGER NOT NULL DEFAULT 0 CHECK (credit_limit_cents >= 0),
+          is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+          created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+        );
+        CREATE INDEX customers_name_idx ON customers (name COLLATE NOCASE);
+        ALTER TABLE sales ADD COLUMN customer_id TEXT REFERENCES customers(id) ON DELETE RESTRICT;
+        ALTER TABLE sales ADD COLUMN credit_cents INTEGER NOT NULL DEFAULT 0 CHECK (credit_cents >= 0);
+
+        CREATE TABLE credit_payments (
+          id TEXT PRIMARY KEY NOT NULL,
+          customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE RESTRICT,
+          session_id TEXT NOT NULL REFERENCES cash_sessions(id) ON DELETE RESTRICT,
+          method TEXT NOT NULL CHECK (method IN ('cash', 'card', 'transfer')),
+          amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
+          note TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+          created_by TEXT NOT NULL DEFAULT 'Administrador'
+        );
+        CREATE INDEX credit_payments_customer_time_idx ON credit_payments (customer_id, created_at DESC);
+
+        CREATE TABLE suppliers (
+          id TEXT PRIMARY KEY NOT NULL,
+          name TEXT NOT NULL,
+          phone TEXT NOT NULL DEFAULT '',
+          email TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+        );
+        CREATE TABLE purchases (
+          id TEXT PRIMARY KEY NOT NULL,
+          supplier_id TEXT REFERENCES suppliers(id) ON DELETE RESTRICT,
+          reference TEXT NOT NULL DEFAULT '',
+          total_cents INTEGER NOT NULL CHECK (total_cents >= 0),
+          created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+          created_by TEXT NOT NULL DEFAULT 'Administrador'
+        );
+        CREATE INDEX purchases_created_at_idx ON purchases (created_at DESC);
+        CREATE TABLE purchase_items (
+          id TEXT PRIMARY KEY NOT NULL,
+          purchase_id TEXT NOT NULL REFERENCES purchases(id) ON DELETE RESTRICT,
+          product_id TEXT NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
+          product_name TEXT NOT NULL,
+          quantity REAL NOT NULL CHECK (quantity > 0),
+          unit_cost_cents INTEGER NOT NULL CHECK (unit_cost_cents >= 0),
+          line_total_cents INTEGER NOT NULL CHECK (line_total_cents >= 0)
+        );
+        CREATE INDEX purchase_items_purchase_idx ON purchase_items (purchase_id);
+
+        CREATE TABLE app_users (
+          id TEXT PRIMARY KEY NOT NULL,
+          name TEXT NOT NULL,
+          pin_hash TEXT NOT NULL,
+          role TEXT NOT NULL CHECK (role IN ('admin', 'manager', 'cashier')),
+          is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+          created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+        );
+        CREATE INDEX app_users_active_idx ON app_users (is_active, name COLLATE NOCASE);
+      `);
+      await db.runAsync('INSERT INTO schema_migrations (version) VALUES (?)', 4);
+    });
+  }
 }

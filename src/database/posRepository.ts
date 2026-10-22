@@ -24,6 +24,8 @@ export type SaleSummary = {
 
 export type SaleReceipt = SaleSummary & {
   session_id: string;
+  customer_name?: string | null;
+  credit_cents?: number;
   items: { product_name: string; sku: string | null; quantity: number; unit_price_cents: number; line_total_cents: number }[];
   payments: { method: 'cash' | 'card' | 'transfer'; amount_cents: number }[];
 };
@@ -45,12 +47,12 @@ export async function getOpenCashSession(db: SQLiteDatabase): Promise<CashSessio
   );
 }
 
-export async function openCashSession(db: SQLiteDatabase, openingCashCents: number): Promise<void> {
+export async function openCashSession(db: SQLiteDatabase, openingCashCents: number, createdBy = 'Administrador'): Promise<void> {
   if (!Number.isSafeInteger(openingCashCents) || openingCashCents < 0) throw new Error('El fondo inicial no es válido.');
   await db.withExclusiveTransactionAsync(async (txn) => {
     const existing = await txn.getFirstAsync<{ id: string }>('SELECT id FROM cash_sessions WHERE closed_at IS NULL LIMIT 1');
     if (existing) throw new Error('Ya existe un turno de caja abierto.');
-    await txn.runAsync('INSERT INTO cash_sessions (id, opening_cash_cents) VALUES (?, ?)', Crypto.randomUUID(), openingCashCents);
+    await txn.runAsync('INSERT INTO cash_sessions (id, opened_by, opening_cash_cents) VALUES (?, ?, ?)', Crypto.randomUUID(), createdBy, openingCashCents);
   });
 }
 
@@ -58,7 +60,10 @@ export async function getCashOverview(db: SQLiteDatabase): Promise<CashOverview>
   const session = await getOpenCashSession(db);
   if (!session) return { session: null, cashSalesCents: 0, cashInCents: 0, cashOutCents: 0, expectedCashCents: 0, byMethod: [], movements: [] };
   const paymentRows = await db.getAllAsync<{ method: 'cash' | 'card' | 'transfer'; amount_cents: number }>(
-    'SELECT method, SUM(amount_cents) AS amount_cents FROM payments WHERE session_id = ? GROUP BY method', session.id,
+    `SELECT method, SUM(amount_cents) AS amount_cents FROM (
+       SELECT method, amount_cents FROM payments WHERE session_id = ?
+       UNION ALL SELECT method, amount_cents FROM credit_payments WHERE session_id = ?
+     ) GROUP BY method`, session.id, session.id,
   );
   const movements = await db.getAllAsync<{ id: string; kind: 'in' | 'out'; amount_cents: number; reason: string; created_at: string }>(
     'SELECT id, kind, amount_cents, reason, created_at FROM cash_movements WHERE session_id = ? ORDER BY created_at DESC LIMIT 30', session.id,
@@ -85,7 +90,7 @@ export async function getCashOverview(db: SQLiteDatabase): Promise<CashOverview>
   };
 }
 
-export async function addCashMovement(db: SQLiteDatabase, kind: 'in' | 'out', amountCents: number, reason: string): Promise<void> {
+export async function addCashMovement(db: SQLiteDatabase, kind: 'in' | 'out', amountCents: number, reason: string, createdBy = 'Administrador'): Promise<void> {
   const normalizedReason = reason.trim();
   if (!Number.isSafeInteger(amountCents) || amountCents <= 0) throw new Error('El importe debe ser mayor a cero.');
   if (normalizedReason.length < 3 || normalizedReason.length > 160) throw new Error('Escribe un motivo de 3 a 160 caracteres.');
@@ -97,13 +102,13 @@ export async function addCashMovement(db: SQLiteDatabase, kind: 'in' | 'out', am
       if (amountCents > totals.expectedCashCents) throw new Error('El retiro supera el efectivo esperado en caja.');
     }
     await txn.runAsync(
-      'INSERT INTO cash_movements (id, session_id, kind, amount_cents, reason) VALUES (?, ?, ?, ?, ?)',
-      Crypto.randomUUID(), session.id, kind, amountCents, normalizedReason,
+      'INSERT INTO cash_movements (id, session_id, kind, amount_cents, reason, created_by) VALUES (?, ?, ?, ?, ?, ?)',
+      Crypto.randomUUID(), session.id, kind, amountCents, normalizedReason, createdBy,
     );
   });
 }
 
-export async function closeCashSession(db: SQLiteDatabase, countedCashCents: number): Promise<{ expectedCashCents: number; differenceCents: number }> {
+export async function closeCashSession(db: SQLiteDatabase, countedCashCents: number, closedBy = 'Administrador'): Promise<{ expectedCashCents: number; differenceCents: number }> {
   if (!Number.isSafeInteger(countedCashCents) || countedCashCents < 0) throw new Error('El efectivo contado no es válido.');
   let result = { expectedCashCents: 0, differenceCents: 0 };
   await db.withExclusiveTransactionAsync(async (txn) => {
@@ -113,8 +118,8 @@ export async function closeCashSession(db: SQLiteDatabase, countedCashCents: num
     result = { expectedCashCents: totals.expectedCashCents, differenceCents: countedCashCents - totals.expectedCashCents };
     await txn.runAsync(
       `UPDATE cash_sessions SET closed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
-       closed_by = 'Administrador', expected_cash_cents = ?, counted_cash_cents = ?, difference_cents = ? WHERE id = ? AND closed_at IS NULL`,
-      result.expectedCashCents, countedCashCents, result.differenceCents, session.id,
+       closed_by = ?, expected_cash_cents = ?, counted_cash_cents = ?, difference_cents = ? WHERE id = ? AND closed_at IS NULL`,
+      closedBy, result.expectedCashCents, countedCashCents, result.differenceCents, session.id,
     );
   });
   return result;
@@ -129,13 +134,13 @@ export async function searchSaleProducts(db: SQLiteDatabase, query: string) {
   );
 }
 
-export async function completeSale(db: SQLiteDatabase, lines: CartLine[], payments: PaymentAmounts): Promise<SaleReceipt> {
+export async function completeSale(db: SQLiteDatabase, lines: CartLine[], payments: PaymentAmounts, customerId: string | null = null, creditCents = 0, createdBy = 'Administrador'): Promise<SaleReceipt> {
   const totalCents = getCartTotalCents(lines);
   if (!lines.length || totalCents <= 0) throw new Error('Agrega productos con precio antes de cobrar.');
   if (lines.some((line) => !Number.isFinite(line.quantity) || line.quantity <= 0 || line.quantity > line.stock)) {
     throw new Error('Revisa las cantidades disponibles en el carrito.');
   }
-  const paymentCheck = validatePayments(totalCents, payments);
+  const paymentCheck = validatePayments(totalCents, payments, creditCents);
   if (!paymentCheck.valid) throw new Error('Los pagos deben cubrir el total y el efectivo recibido debe alcanzar.');
 
   const saleId = Crypto.randomUUID();
@@ -143,12 +148,24 @@ export async function completeSale(db: SQLiteDatabase, lines: CartLine[], paymen
   await db.withExclusiveTransactionAsync(async (txn) => {
     const session = await txn.getFirstAsync<CashSession>('SELECT * FROM cash_sessions WHERE closed_at IS NULL LIMIT 1');
     if (!session) throw new Error('Abre la caja antes de registrar una venta.');
+    let customerName: string | null = null;
+    if (creditCents > 0) {
+      if (!customerId) throw new Error('Selecciona un cliente para registrar crédito.');
+      const customer = await txn.getFirstAsync<{ name: string; credit_limit_cents: number }>('SELECT name, credit_limit_cents FROM customers WHERE id = ? AND is_active = 1', customerId);
+      if (!customer) throw new Error('El cliente no existe o está inactivo.');
+      const balance = await txn.getFirstAsync<{ amount: number }>(
+        `SELECT COALESCE((SELECT SUM(credit_cents) FROM sales WHERE customer_id = ? AND status = 'completed'), 0) -
+         COALESCE((SELECT SUM(amount_cents) FROM credit_payments WHERE customer_id = ?), 0) AS amount`, customerId, customerId,
+      );
+      if (customer.credit_limit_cents > 0 && (balance?.amount ?? 0) + creditCents > customer.credit_limit_cents) throw new Error('El crédito supera el límite disponible del cliente.');
+      customerName = customer.name;
+    }
     const ticket = await txn.getFirstAsync<{ next: number }>('SELECT COALESCE(MAX(ticket_number), 0) + 1 AS next FROM sales');
     const ticketNumber = ticket?.next ?? 1;
     const timestamp = new Date().toISOString();
     await txn.runAsync(
-      'INSERT INTO sales (id, ticket_number, session_id, subtotal_cents, total_cents, change_cents, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      saleId, ticketNumber, session.id, totalCents, totalCents, paymentCheck.changeCents, timestamp,
+      'INSERT INTO sales (id, ticket_number, session_id, subtotal_cents, total_cents, change_cents, created_at, customer_id, credit_cents, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      saleId, ticketNumber, session.id, totalCents, totalCents, paymentCheck.changeCents, timestamp, customerId, creditCents, createdBy,
     );
     for (const line of lines) {
       const live = await txn.getFirstAsync<{ name: string; sku: string | null; price_cents: number; cost_cents: number; stock_quantity: number; is_active: number }>(
@@ -169,8 +186,8 @@ export async function completeSale(db: SQLiteDatabase, lines: CartLine[], paymen
       );
       if (update.changes !== 1) throw new Error(`No se pudo descontar existencia de ${live.name}.`);
       await txn.runAsync(
-        `INSERT INTO inventory_movements (id, product_id, kind, quantity_delta, reference_id, reason)
-         VALUES (?, ?, 'sale', ?, ?, 'Venta')`, Crypto.randomUUID(), line.productId, -line.quantity, saleId,
+        `INSERT INTO inventory_movements (id, product_id, kind, quantity_delta, reference_id, reason, created_by)
+         VALUES (?, ?, 'sale', ?, ?, 'Venta', ?)`, Crypto.randomUUID(), line.productId, -line.quantity, saleId, createdBy,
       );
     }
     const paymentRows = [
@@ -184,7 +201,7 @@ export async function completeSale(db: SQLiteDatabase, lines: CartLine[], paymen
     }
     receipt = {
       id: saleId, ticket_number: ticketNumber, total_cents: totalCents, change_cents: paymentCheck.changeCents,
-      created_at: timestamp, status: 'completed', session_id: session.id,
+      created_at: timestamp, status: 'completed', session_id: session.id, customer_name: customerName, credit_cents: creditCents,
       items: lines.map((line) => ({ product_name: line.name, sku: line.sku, quantity: line.quantity, unit_price_cents: line.unitPriceCents, line_total_cents: Math.round(line.unitPriceCents * line.quantity) })),
       payments: paymentRows.filter(([, amount]) => amount > 0).map(([method, amount]) => ({ method, amount_cents: amount })),
     };
@@ -201,7 +218,7 @@ export async function getRecentSales(db: SQLiteDatabase): Promise<SaleSummary[]>
 
 export async function getSaleReceipt(db: SQLiteDatabase, id: string): Promise<SaleReceipt | null> {
   const sale = await db.getFirstAsync<SaleReceipt>(
-    'SELECT id, ticket_number, session_id, total_cents, change_cents, created_at, status FROM sales WHERE id = ?', id,
+    'SELECT s.id, s.ticket_number, s.session_id, s.total_cents, s.change_cents, s.created_at, s.status, s.credit_cents, c.name AS customer_name FROM sales s LEFT JOIN customers c ON c.id = s.customer_id WHERE s.id = ?', id,
   );
   if (!sale) return null;
   sale.items = await db.getAllAsync<SaleReceipt['items'][number]>(
@@ -215,7 +232,10 @@ export async function getSaleReceipt(db: SQLiteDatabase, id: string): Promise<Sa
 
 async function getCashTotals(db: SQLiteDatabase, session: CashSession): Promise<{ expectedCashCents: number }> {
   const payments = await db.getFirstAsync<{ amount: number }>(
-    `SELECT COALESCE(SUM(amount_cents), 0) AS amount FROM payments WHERE session_id = ? AND method = 'cash'`, session.id,
+    `SELECT COALESCE(SUM(amount_cents), 0) AS amount FROM (
+       SELECT amount_cents FROM payments WHERE session_id = ? AND method = 'cash'
+       UNION ALL SELECT amount_cents FROM credit_payments WHERE session_id = ? AND method = 'cash'
+     )`, session.id, session.id,
   );
   const movements = await db.getFirstAsync<{ cash_in: number; cash_out: number }>(
     `SELECT COALESCE(SUM(CASE WHEN kind = 'in' THEN amount_cents ELSE 0 END), 0) AS cash_in,

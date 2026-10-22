@@ -14,12 +14,12 @@ export function getCartTotalCents(lines: CartLine[]): number {
   return lines.reduce((sum, line) => sum + Math.round(line.unitPriceCents * line.quantity), 0);
 }
 
-export function validatePayments(totalCents: number, amounts: PaymentAmounts): { valid: boolean; changeCents: number } {
+export function validatePayments(totalCents: number, amounts: PaymentAmounts, creditCents = 0): { valid: boolean; changeCents: number } {
   const { cashCents, cardCents, transferCents, cashTenderedCents } = amounts;
-  const values = [totalCents, cashCents, cardCents, transferCents, cashTenderedCents];
+  const values = [totalCents, cashCents, cardCents, transferCents, cashTenderedCents, creditCents];
   if (values.some((value) => !Number.isSafeInteger(value) || value < 0)) return { valid: false, changeCents: 0 };
   const applied = cashCents + cardCents + transferCents;
-  if (!Number.isSafeInteger(applied) || applied !== totalCents || cashTenderedCents < cashCents) return { valid: false, changeCents: 0 };
+  if (!Number.isSafeInteger(applied) || applied + creditCents !== totalCents || cashTenderedCents < cashCents) return { valid: false, changeCents: 0 };
   return { valid: true, changeCents: cashTenderedCents - cashCents };
 }
 

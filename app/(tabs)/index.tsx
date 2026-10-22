@@ -6,9 +6,11 @@ import { getDashboardSummary, type DashboardSummary } from '@/src/database/dashb
 import { formatCurrencyFromCents } from '@/src/domain/money';
 import { useAppTheme } from '@/src/ui/ThemeProvider';
 import { SectionHeading, StatusPill } from '@/components/SectionHeading';
+import { useAuth } from '@/src/ui/AuthProvider';
 
 export default function DashboardScreen() {
   const { theme, styles } = useThemeStyles();
+  const { user } = useAuth();
   const db = useSQLiteContext();
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -60,7 +62,12 @@ export default function DashboardScreen() {
       <View style={styles.quickGrid}>
         <QuickAction icon="＋" title="Nueva venta" href={'/sale' as Href} />
         <QuickAction icon="▦" title="Productos" href={'/products' as Href} />
-        <QuickAction icon="↕" title="Inventario" />
+        <QuickAction icon="♙" title="Clientes y crédito" href={'/customers' as Href} />
+        {user?.role !== 'cashier' ? <>
+          <QuickAction icon="↕" title="Inventario" href={'/inventory' as Href} />
+          <QuickAction icon="↧" title="Compras" href={'/purchases' as Href} />
+          <QuickAction icon="▤" title="Reportes" href={'/reports' as Href} />
+        </> : null}
         <QuickAction icon="◷" title="Corte de caja" href={'/cash' as Href} />
         <QuickAction icon="↥" title="Respaldos" href={'/backup' as Href} />
       </View>

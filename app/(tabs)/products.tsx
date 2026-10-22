@@ -6,6 +6,7 @@ import { ProductImportModal } from '@/components/ProductImportModal';
 import { useAppTheme } from '@/src/ui/ThemeProvider';
 import { createProduct, searchProducts, setProductActive, updateProduct, type Product, type ProductInput, type ProductStatusFilter } from '@/src/database/productsRepository';
 import { formatCurrencyFromCents } from '@/src/domain/money';
+import { useAuth } from '@/src/ui/AuthProvider';
 
 const filters: { id: ProductStatusFilter; label: string }[] = [
   { id: 'active', label: 'Activos' },
@@ -15,6 +16,8 @@ const filters: { id: ProductStatusFilter; label: string }[] = [
 
 export default function ProductsScreen() {
   const { theme, styles } = useThemeStyles();
+  const { user } = useAuth();
+  const canEdit = user?.role !== 'cashier';
   const db = useSQLiteContext();
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState<ProductStatusFilter>('active');
@@ -78,7 +81,7 @@ export default function ProductsScreen() {
 
   const saveProduct = async (input: ProductInput) => {
     if (selectedProduct) await updateProduct(db, selectedProduct.id, input);
-    else await createProduct(db, input);
+    else await createProduct(db, input, user?.name);
     await loadFirstPage();
   };
 
@@ -95,7 +98,7 @@ export default function ProductsScreen() {
           <Text style={styles.title}>Productos</Text>
           <Text style={styles.subtitle}>Precios y existencias de tu tienda</Text>
         </View>
-        <View style={styles.headerActions}>
+        {canEdit ? <View style={styles.headerActions}>
           <Pressable accessibilityRole="button" onPress={() => setImportVisible(true)} style={styles.importButton}>
             <Text style={styles.importText}>Importar</Text>
           </Pressable>
@@ -103,7 +106,7 @@ export default function ProductsScreen() {
             <Text style={styles.addIcon}>＋</Text>
             <Text style={styles.addText}>Nuevo</Text>
           </Pressable>
-        </View>
+        </View> : null}
       </View>
 
       <View style={styles.searchBox}>
@@ -135,7 +138,7 @@ export default function ProductsScreen() {
       <FlatList
         data={items}
         keyExtractor={(item) => item.id}
-        renderItem={({ item }) => <ProductRow product={item} onPress={() => openEdit(item)} />}
+        renderItem={({ item }) => <ProductRow product={item} canEdit={canEdit} onPress={() => openEdit(item)} />}
         contentContainerStyle={[styles.listContent, items.length === 0 && styles.emptyList]}
         ItemSeparatorComponent={() => <View style={styles.separator} />}
         keyboardShouldPersistTaps="handled"
@@ -164,11 +167,11 @@ export default function ProductsScreen() {
   );
 }
 
-function ProductRow({ product, onPress }: { product: Product; onPress: () => void }) {
+function ProductRow({ product, canEdit, onPress }: { product: Product; canEdit: boolean; onPress: () => void }) {
   const { styles } = useThemeStyles();
   const isLow = product.minimum_stock > 0 && product.stock_quantity <= product.minimum_stock;
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={`Editar ${product.name}`} onPress={onPress} style={({ pressed }) => [styles.productCard, pressed && styles.pressed]}>
+    <Pressable accessibilityRole={canEdit ? 'button' : undefined} accessibilityLabel={canEdit ? `Editar ${product.name}` : product.name} disabled={!canEdit} onPress={onPress} style={({ pressed }) => [styles.productCard, pressed && styles.pressed]}>
       <View style={styles.productTop}>
         <View style={styles.productTitleGroup}>
           <Text style={[styles.productName, !product.is_active && styles.inactiveName]} numberOfLines={2}>{product.name}</Text>

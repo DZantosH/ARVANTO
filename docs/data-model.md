@@ -10,12 +10,18 @@ La migración 2 agrega descripción y costo en centavos. También normaliza las 
 
 El catálogo incluye búsqueda por nombre, SKU y descripción, filtros por estado y paginación. Crear permite registrar existencias iniciales; la edición no cambia existencias. El borrado es lógico: los productos se desactivan y pueden reactivarse, preservando su historial. El dashboard cuenta productos activos bajo el mínimo.
 
-Todavía no se mantiene un Kardex ni se deriva stock de movimientos; cuando se implemente inventario, los movimientos serán la fuente auditable y sus saldos se actualizarán en transacciones.
+El stock actual se actualiza en transacciones y se mantiene un Kardex para ventas, compras, ajustes manuales y existencias iniciales.
 
 La migración 3 agrega `cash_sessions`, `cash_movements`, `sales`, `sale_items`, `payments` e `inventory_movements`. Un turno abierto es único por base de datos. Una venta guarda snapshots de nombre, SKU, costo y precio, sus métodos de pago y movimientos de inventario; descontar existencias y completar la venta ocurre en una transacción exclusiva. Los productos no se borran físicamente porque el historial de venta los referencia.
 
 El efectivo esperado al corte es fondo inicial + cobros en efectivo + entradas − retiros. Tarjeta y transferencia se reportan aparte. El efectivo aplicado a una venta ya es neto del cambio entregado, por eso el cambio no se vuelve a restar en el cálculo del cajón. No se permiten retiros superiores al efectivo esperado. El corte guarda efectivo contado y diferencia firmada.
 
-El MVP de venta no incluye descuentos, impuestos, clientes, crédito, cancelaciones ni devoluciones. El total de línea se redondea a centavos desde precio unitario × cantidad; las cantidades fraccionarias son posibles en el esquema, aunque el flujo actual vende unidades enteras.
+El flujo de venta admite crédito por cliente, pero todavía no incluye descuentos, impuestos, cancelaciones ni devoluciones. El total de línea se redondea a centavos desde precio unitario × cantidad; las cantidades fraccionarias son posibles en el esquema, aunque el POS actual vende unidades enteras.
 
-Futuras migraciones añadirán categorías, códigos de barras, unidades, conversiones, clientes, crédito, devoluciones y bitácora. Los identificadores de sincronización son UUID, no autoincrementales.
+Los identificadores de sincronización son UUID, no autoincrementales. Categorías, unidades, devoluciones y sincronización remota continúan pendientes.
+
+La migración 4 añade clientes y límite de crédito; `sales.customer_id` y `sales.credit_cents` representan el cargo a cuenta. `credit_payments` guarda abonos por cliente, método, turno de caja y usuario; el saldo se calcula como crédito de ventas completadas menos abonos. Los abonos cuentan en cobros por método y efectivo esperado.
+
+La misma migración añade proveedores, compras y partidas. Registrar una compra y recibir existencias ocurre en una transacción; actualiza stock y costo actual e inserta un movimiento `purchase` con referencia al documento. `inventory_movements` conserva ajustes, ventas y compras junto con el usuario que los registró.
+
+`app_users` almacena nombre, perfil local y hash SHA-256 salado del PIN. Los perfiles administrador, encargado y cajero controlan las rutas accesibles; la aplicación requiere crear el primer administrador y pide PIN al abrir una sesión nueva. El modelo es local y no sincroniza usuarios.

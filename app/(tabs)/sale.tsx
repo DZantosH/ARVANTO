@@ -6,17 +6,22 @@ import { useAppTheme } from '@/src/ui/ThemeProvider';
 import { getRecentSales, getSaleReceipt, getOpenCashSession, searchSaleProducts, completeSale, type SaleReceipt, type SaleSummary } from '@/src/database/posRepository';
 import { formatCurrencyFromCents, parseCurrencyToCents } from '@/src/domain/money';
 import { getCartTotalCents, type CartLine } from '@/src/domain/sales';
+import { printSaleReceipt } from '@/src/infrastructure/printing';
+import { getCustomers, type Customer } from '@/src/database/businessRepository';
+import { useAuth } from '@/src/ui/AuthProvider';
 
 type ProductRow = { id: string; name: string; sku: string | null; price_cents: number; cost_cents: number; stock_quantity: number };
 
 export default function SaleScreen() {
   const { theme, styles } = useThemeStyles();
   const db = useSQLiteContext();
+  const { user } = useAuth();
   const { width } = useWindowDimensions();
   const [query, setQuery] = useState('');
   const [products, setProducts] = useState<ProductRow[]>([]);
   const [cart, setCart] = useState<CartLine[]>([]);
   const [sales, setSales] = useState<SaleSummary[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [searching, setSearching] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -29,8 +34,9 @@ export default function SaleScreen() {
 
   const refresh = useCallback(async () => {
     try {
-      const [recent, session] = await Promise.all([getRecentSales(db), getOpenCashSession(db)]);
+      const [recent, session, activeCustomers] = await Promise.all([getRecentSales(db), getOpenCashSession(db), getCustomers(db)]);
       setSales(recent);
+      setCustomers(activeCustomers.filter((customer) => customer.is_active));
       setOpenSession(Boolean(session));
       setError('');
     } catch {
@@ -71,12 +77,12 @@ export default function SaleScreen() {
     return [{ ...item, quantity }];
   }));
 
-  const finishSale = async (payments: { cashCents: number; cardCents: number; transferCents: number; cashTenderedCents: number }) => {
+  const finishSale = async (payment: { cashCents: number; cardCents: number; transferCents: number; cashTenderedCents: number; customerId: string | null; creditCents: number }) => {
     if (saveLock.current) return;
     saveLock.current = true;
     setSaving(true);
     try {
-      const result = await completeSale(db, cart, payments);
+      const result = await completeSale(db, cart, payment, payment.customerId, payment.creditCents, user?.name);
       setCart([]);
       setCheckoutVisible(false);
       setReceipt(result);
@@ -131,23 +137,25 @@ export default function SaleScreen() {
         <View style={styles.rowBetween}><Text style={styles.sectionTitle}>Ventas recientes</Text><Text style={styles.meta}>Últimas 30</Text></View>
         {loading ? <ActivityIndicator color={theme.colors.primary} /> : sales.length ? <FlatList horizontal data={sales} keyExtractor={(sale) => sale.id} showsHorizontalScrollIndicator={false} contentContainerStyle={styles.salesStrip} renderItem={({ item }) => <Pressable onPress={() => void openReceipt(item.id)} style={styles.saleChip}><Text style={styles.saleChipTitle}>Ticket #{item.ticket_number}</Text><Text style={styles.saleChipAmount}>{formatCurrencyFromCents(item.total_cents)}</Text></Pressable>} /> : <Text style={styles.emptyText}>Aún no hay ventas registradas.</Text>}
       </View>
-      {checkoutVisible ? <CheckoutModal visible totalCents={total} saving={saving} onClose={() => setCheckoutVisible(false)} onSubmit={finishSale} /> : null}
+      {checkoutVisible ? <CheckoutModal visible totalCents={total} saving={saving} customers={customers} onClose={() => setCheckoutVisible(false)} onSubmit={finishSale} /> : null}
       {receipt ? <ReceiptModal receipt={receipt} onClose={() => setReceipt(null)} /> : null}
     </View>
   );
 }
 
-function CheckoutModal({ visible, totalCents, saving, onClose, onSubmit }: { visible: boolean; totalCents: number; saving: boolean; onClose: () => void; onSubmit: (payments: { cashCents: number; cardCents: number; transferCents: number; cashTenderedCents: number }) => Promise<void> }) {
+function CheckoutModal({ visible, totalCents, saving, customers, onClose, onSubmit }: { visible: boolean; totalCents: number; saving: boolean; customers: Customer[]; onClose: () => void; onSubmit: (payment: { cashCents: number; cardCents: number; transferCents: number; cashTenderedCents: number; customerId: string | null; creditCents: number }) => Promise<void> }) {
   const { styles } = useThemeStyles();
-  const [cash, setCash] = useState(''); const [card, setCard] = useState(''); const [transfer, setTransfer] = useState(''); const [tendered, setTendered] = useState(''); const [error, setError] = useState('');
+  const [cash, setCash] = useState(''); const [card, setCard] = useState(''); const [transfer, setTransfer] = useState(''); const [tendered, setTendered] = useState(''); const [credit, setCredit] = useState(''); const [customerId, setCustomerId] = useState<string | null>(null); const [error, setError] = useState('');
   const parse = (value: string) => value.trim() ? parseCurrencyToCents(value) : 0;
   const submit = async () => {
     try {
       const cashCents = parse(cash); const cardCents = parse(card); const transferCents = parse(transfer);
+      const creditCents = parse(credit);
       const cashTenderedCents = cash.trim() ? (tendered.trim() ? parse(tendered) : cashCents) : 0;
-      if (cashCents + cardCents + transferCents !== totalCents) { setError('La suma de los métodos debe ser igual al total.'); return; }
+      if (cashCents + cardCents + transferCents + creditCents !== totalCents) { setError('La suma de los pagos y crédito debe ser igual al total.'); return; }
+      if (creditCents > 0 && !customerId) { setError('Selecciona un cliente para la parte a crédito.'); return; }
       if (cashTenderedCents < cashCents) { setError('El efectivo recibido no cubre el importe en efectivo.'); return; }
-      setError(''); await onSubmit({ cashCents, cardCents, transferCents, cashTenderedCents });
+      setError(''); await onSubmit({ cashCents, cardCents, transferCents, cashTenderedCents, customerId, creditCents });
     } catch { setError('Escribe importes válidos con hasta dos decimales.'); }
   };
   return <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
@@ -155,6 +163,8 @@ function CheckoutModal({ visible, totalCents, saving, onClose, onSubmit }: { vis
       <Text style={styles.fieldLabel}>Efectivo aplicado</Text><TextInput value={cash} onChangeText={setCash} placeholder="0.00" keyboardType="decimal-pad" style={styles.input} />
       <Text style={styles.fieldLabel}>Tarjeta</Text><TextInput value={card} onChangeText={setCard} placeholder="0.00" keyboardType="decimal-pad" style={styles.input} />
       <Text style={styles.fieldLabel}>Transferencia</Text><TextInput value={transfer} onChangeText={setTransfer} placeholder="0.00" keyboardType="decimal-pad" style={styles.input} />
+      <Text style={styles.fieldLabel}>A crédito</Text><TextInput value={credit} onChangeText={setCredit} placeholder="0.00" keyboardType="decimal-pad" style={styles.input} />
+      {Number(credit.replace(',', '.')) > 0 ? <><Text style={styles.fieldLabel}>Cliente responsable</Text><ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.salesStrip}>{customers.map((customer) => <Pressable key={customer.id} onPress={() => setCustomerId(customer.id)} style={[styles.saleChip, customerId === customer.id && { borderColor: '#FF6720' }]}><Text style={styles.saleChipTitle}>{customer.name}</Text><Text style={styles.saleChipAmount}>Saldo {formatCurrencyFromCents(customer.balance_cents)}</Text></Pressable>)}</ScrollView></> : null}
       <Text style={styles.fieldLabel}>Efectivo recibido (para calcular cambio)</Text><TextInput value={tendered} onChangeText={setTendered} placeholder="Igual al efectivo aplicado" keyboardType="decimal-pad" style={styles.input} />
       {error ? <Text style={styles.error}>{error}</Text> : null}
       <View style={styles.modalActions}><Pressable onPress={onClose} style={styles.secondaryButton}><Text style={styles.secondaryText}>Volver</Text></Pressable><Pressable disabled={saving} onPress={() => void submit()} style={styles.primaryButton}><Text style={styles.primaryButtonText}>{saving ? 'Guardando…' : 'Confirmar venta'}</Text></Pressable></View>
@@ -165,12 +175,22 @@ function CheckoutModal({ visible, totalCents, saving, onClose, onSubmit }: { vis
 
 function ReceiptModal({ receipt, onClose }: { receipt: SaleReceipt | null; onClose: () => void }) {
   const { styles } = useThemeStyles();
+  const [printing, setPrinting] = useState(false);
+  const print = async () => {
+    if (!receipt || printing) return;
+    setPrinting(true);
+    try { await printSaleReceipt(receipt); }
+    catch { Alert.alert('Impresión no disponible', 'Revisa que el dispositivo tenga configurado un servicio de impresión.'); }
+    finally { setPrinting(false); }
+  };
   return <Modal visible={Boolean(receipt)} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
     {receipt ? <ScrollView contentContainerStyle={styles.receiptPage}><Text style={styles.eyebrow}>VENTA COMPLETADA</Text><Text style={styles.modalTitle}>Ticket #{receipt.ticket_number}</Text><Text style={styles.receiptDate}>{new Date(receipt.created_at).toLocaleString('es-MX')}</Text>
       {receipt.items.map((item, index) => <View key={`${item.product_name}-${index}`} style={styles.receiptLine}><View style={{ flex: 1 }}><Text style={styles.productName}>{item.product_name}</Text><Text style={styles.meta}>{item.quantity} × {formatCurrencyFromCents(item.unit_price_cents)}</Text></View><Text style={styles.lineTotal}>{formatCurrencyFromCents(item.line_total_cents)}</Text></View>)}
       <View style={styles.totalRow}><Text style={styles.totalLabel}>Total</Text><Text style={styles.total}>{formatCurrencyFromCents(receipt.total_cents)}</Text></View>
       {receipt.payments.map((payment) => <Text key={payment.method} style={styles.meta}>{payment.method === 'cash' ? 'Efectivo' : payment.method === 'card' ? 'Tarjeta' : 'Transferencia'} · {formatCurrencyFromCents(payment.amount_cents)}</Text>)}
       {receipt.change_cents ? <Text style={styles.change}>Cambio · {formatCurrencyFromCents(receipt.change_cents)}</Text> : null}
+      {receipt.credit_cents ? <Text style={styles.change}>Saldo a crédito · {formatCurrencyFromCents(receipt.credit_cents)}</Text> : null}
+      <Pressable disabled={printing} onPress={() => void print()} style={[styles.primaryButton, { marginBottom: 9 }]}><Text style={styles.primaryButtonText}>{printing ? 'Abriendo impresión…' : 'Imprimir ticket'}</Text></Pressable>
       <Pressable onPress={onClose} style={styles.primaryButton}><Text style={styles.primaryButtonText}>Listo</Text></Pressable>
     </ScrollView> : null}
   </Modal>;

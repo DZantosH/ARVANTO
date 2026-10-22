@@ -30,6 +30,18 @@ Los turnos de caja guardan fondo inicial, cobros por método, entradas, retiros,
 
 La copia manual usa la API de backup de SQLite para crear un snapshot consistente, lo cifra con AES-GCM y lo comparte con la hoja del sistema. La clave aleatoria de 256 bits queda en SecureStore y puede mostrarse para guardarla o transferirla por separado. Sin esa clave el archivo no se recupera. La restauración comprueba formato, autenticidad AES-GCM, `PRAGMA integrity_check` y versión; crea un snapshot local previo antes de reemplazar la base. Los respaldos no se envían automáticamente a la nube.
 
+## Inventario, clientes, compras y acceso local
+
+Las existencias reciben movimientos al crear/importar productos, vender, ajustar manualmente o registrar una compra. Los ajustes y compras actualizan el saldo en transacciones exclusivas.
+
+La parte de una venta a crédito requiere cliente y queda en `sales.credit_cents`; los abonos se ligan al turno abierto y se suman a la conciliación por método. El límite configurado en cliente se valida dentro de la transacción de venta.
+
+Las compras guardan proveedor opcional, referencia, partidas, costo y recepción inmediata. Los reportes consultan SQLite local y muestran cifras del día y saldos actuales.
+
+El primer acceso requiere crear un administrador. Cada acceso posterior pide un PIN de 6–8 dígitos; su hash con sal se conserva en SQLite. Los perfiles restringen rutas en la app. No es identidad remota ni reemplaza controles de un servidor: los datos y la aplicación son locales.
+
+Los tickets usan `expo-print` para abrir impresión del sistema Android/iOS/Web. La conexión a impresoras Bluetooth ESC/POS y el ajuste de papel/corte dependen del servicio y modelo de impresora; deben validarse con hardware real.
+
 ## Límites actuales
 
-No se han implementado clientes/crédito, descuentos, impuestos, cancelaciones/devoluciones, impresión física, escáner, múltiples usuarios ni cifrado SQLite en reposo. El ticket se presenta en pantalla. La clave de respaldo es transferible por decisión explícita del usuario y debe guardarse separada del archivo.
+Descuentos, impuestos, cancelaciones/devoluciones, escáner, sincronización remota y cifrado SQLite en reposo siguen pendientes. La impresión necesita una impresora y servicio compatibles instalados; la conexión Bluetooth ESC/POS directa no está incluida. La clave de respaldo es transferible por decisión explícita del usuario y debe guardarse separada del archivo.
