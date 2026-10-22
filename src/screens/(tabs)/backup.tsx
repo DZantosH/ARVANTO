@@ -5,12 +5,14 @@ import { useSQLiteContext } from '@/src/native/database';
 import * as DocumentPicker from '@/src/native/platform';
 import { File } from '@/src/native/platform';
 import * as Sharing from '@/src/native/platform';
+import { useAuth } from '@/src/ui/AuthProvider';
 import { useAppTheme } from '@/src/ui/ThemeProvider';
 import { createEncryptedBackup, getBackupKey, getLastBackupInfo, getLastRestoreAt, restoreEncryptedBackup, type BackupInfo } from '@/src/infrastructure/backup';
 
 export default function BackupScreen() {
   const { theme, styles } = useThemeStyles();
   const db = useSQLiteContext();
+  const { logout } = useAuth();
   const [lastBackup, setLastBackup] = useState<BackupInfo | null>(null);
   const [lastRestore, setLastRestore] = useState<string | null>(null);
   const [key, setKey] = useState('');
@@ -53,6 +55,7 @@ export default function BackupScreen() {
     setBusy(true); setMessage('');
     try {
       await restoreEncryptedBackup(db, file, keyInput);
+      await logout();
       setKeyInput(''); setMessage('El respaldo se validó y los datos locales se restauraron. Se guardó una copia previa dentro de la app.');
       await refresh();
     } catch (caught) { setMessage(caught instanceof Error ? caught.message : 'No se pudo restaurar el respaldo.'); }

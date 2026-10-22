@@ -8,7 +8,7 @@ No se utiliza Expo, EAS ni generación automática de proyectos nativos. El proy
 
 ## Persistencia
 
-`src/database/` contiene repositorios y nueve migraciones. `src/native/database.tsx` serializa el acceso y mantiene cada transacción exclusiva hasta COMMIT o ROLLBACK. Android SQLite usa parámetros tipados, WAL y claves foráneas. El dinero se guarda en centavos enteros.
+`src/database/` contiene repositorios y diez migraciones. `src/native/database.tsx` serializa el acceso y mantiene cada transacción exclusiva hasta COMMIT o ROLLBACK. Android SQLite usa parámetros tipados, WAL y claves foráneas. El dinero se guarda en centavos enteros.
 
 Se conserva `files/SQLite/ferrepos.db` y el identificador `mx.arvanto.ferrepos` para actualizaciones sobre instalaciones anteriores.
 
@@ -22,6 +22,10 @@ Los respaldos toman un snapshot SQLite tras checkpoint de WAL y lo cifran con un
 
 ## Acceso local y límites
 
-El PIN con salt mantiene el formato anterior para conservar los accesos. Los perfiles limitan rutas y algunas operaciones administrativas. La base local sigue sin cifrado y no existe servidor de autenticación ni sincronización. La bitácora local no es inmutable ante acceso directo a la base.
+El acceso usa usuario y contraseña contra la futura API de la web. La contraseña no se guarda. Solo se persisten el token, identidad, negocio y jornada en el almacén protegido por Android Keystore. Las identidades locales son referencias para operaciones y bitácora, sin credenciales locales ni altas desde la app.
+
+`app_auth_state.session_epoch` invalida de forma persistente los accesos guardados. El corte que finaliza el negocio incrementa ese contador dentro de la misma transacción de caja. El cierre manual guarda además una marca de revocación protegida; así un cierre interrumpido no restaura el token anterior. Los cierres remotos pendientes se reintentan antes de permitir el siguiente acceso. No hay cierre por inactividad o por pasar a segundo plano.
+
+Se comprueba la sesión al regresar y cada 30 segundos mientras la app está activa. Un error de red conserva una sesión ya autenticada y no vencida; una revocación o jornada cerrada la elimina. Los datos locales siguen sin cifrado SQLite y no hay sincronización de productos o ventas. El backend de cuentas y registro aún está pendiente.
 
 Android es la plataforma nativa implementada. iOS requiere implementar los servicios equivalentes. La impresión física depende del servicio y la impresora instalados; Bluetooth ESC/POS directo no está incluido.

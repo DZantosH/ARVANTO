@@ -22,7 +22,6 @@ import Purchases from './src/screens/purchases';
 import Reports from './src/screens/reports';
 import Users from './src/screens/users';
 import Audit from './src/screens/audit';
-import ChangePin from './src/screens/change-pin';
 
 const Stack = createNativeStackNavigator<RootRoutes>();
 const Tabs = createBottomTabNavigator();
@@ -47,7 +46,6 @@ function AppNavigation() {
       {!user ? <Stack.Screen name="access" component={Access} /> : <>
         <Stack.Screen name="Main" component={MainTabs} />
         <Stack.Screen name="customers" component={Customers} options={{ headerShown: true, title: 'Clientes' }} />
-        <Stack.Screen name="change-pin" component={ChangePin} options={{ headerShown: true, title: 'Cambiar PIN' }} />
         {user.role !== 'cashier' ? <>
           <Stack.Screen name="inventory" component={Inventory} options={{ headerShown: true, title: 'Inventario' }} />
           <Stack.Screen name="inventory-count" component={InventoryCount} options={{ headerShown: true, title: 'Conteo físico' }} />

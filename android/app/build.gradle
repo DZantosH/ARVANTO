@@ -11,8 +11,8 @@ android {
         applicationId 'mx.arvanto.ferrepos'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 2
-        versionName "1.1.0"
+        versionCode 3
+        versionName "1.2.0"
         testInstrumentationRunner "mx.arvanto.ferrepos.ArvantoSmokeInstrumentation"
     }
     testBuildType "smoke"

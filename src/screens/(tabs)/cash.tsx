@@ -1,5 +1,5 @@
 import { useCallback, useState, useMemo } from 'react';
-import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Switch, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useFocusEffect } from '@/src/navigation/navigation';
 import { useSQLiteContext } from '@/src/native/database';
 import { useAppTheme } from '@/src/ui/ThemeProvider';
@@ -12,7 +12,7 @@ type ActionKind = 'open' | 'in' | 'out' | 'close';
 export default function CashScreen() {
   const { theme, styles } = useThemeStyles();
   const db = useSQLiteContext();
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const [overview, setOverview] = useState<CashOverview | null>(null);
   const [action, setAction] = useState<ActionKind | null>(null);
   const [busy, setBusy] = useState(false);
@@ -24,17 +24,18 @@ export default function CashScreen() {
   }, [db]);
   useFocusEffect(useCallback(() => { void refresh(); }, [refresh]));
 
-  const submit = async (amountText: string, reason: string) => {
+  const submit = async (amountText: string, reason: string, endBusinessDay = false) => {
     setBusy(true);
     try {
       const amount = parseCurrencyToCents(amountText.trim() || '0');
       if (action === 'open') await openCashSession(db, amount, user?.name);
       else if (action === 'in' || action === 'out') await addCashMovement(db, action, amount, reason, user?.name);
       else if (action === 'close') {
-        const result = await closeCashSession(db, amount, user?.name);
+        const result = await closeCashSession(db, amount, user?.name, endBusinessDay);
         setAction(null);
-        await refresh();
-        Alert.alert('Turno cerrado', `Efectivo esperado: ${formatCurrencyFromCents(result.expectedCashCents)}\nDiferencia: ${formatCurrencyFromCents(result.differenceCents)}${result.differenceCents < 0 ? ' (faltante)' : result.differenceCents > 0 ? ' (sobrante)' : ''}`);
+        if (endBusinessDay) await logout('business_closed');
+        else await refresh();
+        Alert.alert(endBusinessDay ? 'Negocio cerrado' : 'Turno cerrado', `Efectivo esperado: ${formatCurrencyFromCents(result.expectedCashCents)}\nDiferencia: ${formatCurrencyFromCents(result.differenceCents)}${result.differenceCents < 0 ? ' (faltante)' : result.differenceCents > 0 ? ' (sobrante)' : ''}`);
         return;
       }
       setAction(null); await refresh();
@@ -68,10 +69,11 @@ function ActionButton({ title, subtitle, danger, onPress }: { title: string; sub
   return <Pressable onPress={onPress} style={[styles.actionButton, danger && styles.actionDanger]}><Text style={[styles.actionTitle, danger && styles.outAmount]}>{title}</Text><Text style={styles.actionSubtitle}>{subtitle}</Text></Pressable>;
 }
 
-function CashActionModal({ kind, busy, expectedCash, onClose, onSubmit }: { kind: ActionKind | null; busy: boolean; expectedCash: number; onClose: () => void; onSubmit: (amount: string, reason: string) => Promise<void> }) {
+function CashActionModal({ kind, busy, expectedCash, onClose, onSubmit }: { kind: ActionKind | null; busy: boolean; expectedCash: number; onClose: () => void; onSubmit: (amount: string, reason: string, endBusinessDay: boolean) => Promise<void> }) {
   const { styles } = useThemeStyles();
   const [amount, setAmount] = useState('');
   const [reason, setReason] = useState('');
+  const [endBusinessDay, setEndBusinessDay] = useState(true);
   const [error, setError] = useState('');
   const labels: Record<ActionKind, string> = { open: 'Abrir caja', in: 'Entrada de efectivo', out: 'Retiro de efectivo', close: 'Cerrar turno' };
   const submit = async () => {
@@ -82,17 +84,18 @@ function CashActionModal({ kind, busy, expectedCash, onClose, onSubmit }: { kind
         if (reason.trim().length < 3) { setError('Escribe un motivo de al menos 3 caracteres.'); return; }
       }
       if (kind === 'out' && cents > expectedCash) { setError('El retiro supera el efectivo esperado en caja.'); return; }
-      setError(''); await onSubmit(amount, reason);
+      setError(''); await onSubmit(amount, reason, kind === 'close' && endBusinessDay);
       setAmount(''); setReason('');
     } catch { setError('Escribe un importe válido con hasta dos decimales.'); }
   };
   return <Modal visible={Boolean(kind)} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
     {kind ? <View style={styles.modalPage}><Text style={styles.eyebrow}>CONTROL DE CAJA</Text><Text style={styles.modalTitle}>{labels[kind]}</Text>
       {kind === 'close' ? <Text style={styles.expected}>Efectivo esperado: {formatCurrencyFromCents(expectedCash)}</Text> : null}
+      {kind === 'close' ? <View style={styles.actionRow}><View style={{ flex: 1 }}><Text style={styles.fieldLabel}>Finalizar jornada y cerrar sesión</Text><Text style={styles.empty}>Desactiva esta opción si solo estás cambiando de turno.</Text></View><Switch accessibilityLabel="Finalizar jornada y cerrar sesión" value={endBusinessDay} onValueChange={setEndBusinessDay} disabled={busy} /></View> : null}
       <Text style={styles.fieldLabel}>{kind === 'close' ? 'Efectivo contado' : kind === 'open' ? 'Fondo inicial' : 'Importe'}</Text><TextInput autoFocus value={amount} onChangeText={setAmount} keyboardType="decimal-pad" placeholder="0.00" style={styles.input} />
       {kind === 'in' || kind === 'out' ? <><Text style={styles.fieldLabel}>Motivo</Text><TextInput value={reason} onChangeText={setReason} maxLength={160} placeholder={kind === 'in' ? 'Ej. Cambio inicial adicional' : 'Ej. Pago a proveedor'} style={styles.input} /></> : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}
-      <View style={styles.modalActions}><Pressable onPress={onClose} style={styles.cancelButton}><Text style={styles.cancelText}>Cancelar</Text></Pressable><Pressable disabled={busy} onPress={() => void submit()} style={styles.primaryButton}><Text style={styles.primaryText}>{busy ? 'Guardando…' : labels[kind]}</Text></Pressable></View>
+      <View style={styles.modalActions}><Pressable onPress={onClose} style={styles.cancelButton}><Text style={styles.cancelText}>Cancelar</Text></Pressable><Pressable disabled={busy} onPress={() => void submit()} style={styles.primaryButton}><Text style={styles.primaryText}>{busy ? 'Guardando…' : kind === 'close' && endBusinessDay ? 'Cerrar negocio' : labels[kind]}</Text></Pressable></View>
     </View> : null}
   </Modal>;
 }

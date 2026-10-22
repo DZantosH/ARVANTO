@@ -12,3 +12,7 @@ This project uses React Native Community CLI and TypeScript. The user explicitly
 - Debug builds need Metro (`npm start`). Release builds must include the JS bundle and start without Metro.
 - Never commit signing secrets, local database copies, `local.properties`, or native build artifacts.
 - Keep mobile performance, safe areas, accessibility and clear Spanish UI labels.
+
+- Mobile login is username/password only. Account registration, password recovery and roles belong to the future website `https://arvanto.asyncz.tech`; never add local account creation or seed credentials.
+- Preserve authenticated sessions across app restarts using Android Keystore. Manual logout and business-day closure must invalidate persistent sessions; closing a shift alone can preserve login.
+- The web API is not deployed yet. Follow `docs/auth-api.md` and clearly distinguish mocked authentication tests from real backend verification.

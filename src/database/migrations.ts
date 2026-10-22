@@ -495,4 +495,23 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
       await txn.runAsync('INSERT INTO schema_migrations (version) VALUES (?)', 9);
     });
   }
+  if ((current?.version ?? 0) < 10) {
+    await db.withExclusiveTransactionAsync(async (txn) => {
+      await txn.execAsync(`
+        ALTER TABLE app_users ADD COLUMN username TEXT;
+        ALTER TABLE app_users ADD COLUMN remote_id TEXT;
+        ALTER TABLE app_users ADD COLUMN business_id TEXT;
+        CREATE UNIQUE INDEX app_users_remote_idx ON app_users(remote_id,business_id) WHERE remote_id IS NOT NULL;
+        CREATE TABLE app_auth_state (
+          id INTEGER PRIMARY KEY CHECK(id=1),
+          session_epoch INTEGER NOT NULL DEFAULT 0,
+          last_end_reason TEXT NOT NULL DEFAULT '',
+          business_id TEXT
+        );
+        INSERT INTO app_auth_state(id) VALUES(1);
+      `);
+      await txn.runAsync('INSERT INTO schema_migrations(version) VALUES(?)', 10);
+    });
+  }
+
 }

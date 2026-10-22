@@ -76,7 +76,7 @@ export async function restoreEncryptedBackup(db: SQLiteDatabase, file: File, sup
     const integrity = await source.getFirstAsync<{ integrity_check: string }>('PRAGMA integrity_check');
     if (integrity?.integrity_check !== 'ok') throw new Error('La base de datos del respaldo está dañada.');
     const version = await source.getFirstAsync<{ version: number }>('SELECT COALESCE(MAX(version), 0) AS version FROM schema_migrations');
-    if (!version || version.version < 1 || version.version > 9) throw new Error('El respaldo pertenece a una versión incompatible de FerrePOS.');
+    if (!version || version.version < 1 || version.version > 10) throw new Error('El respaldo pertenece a una versión incompatible de FerrePOS.');
     await migrateDatabase(source);
 
     const safetyCopyName = 'ferrepos-pre-restore.db';
@@ -90,6 +90,9 @@ export async function restoreEncryptedBackup(db: SQLiteDatabase, file: File, sup
         throw error;
       }
     } finally { await safetyCopy.closeAsync(); }
+    // A restored database must never revive a previously saved login.
+    await db.runAsync('UPDATE app_auth_state SET session_epoch=session_epoch+1 WHERE id=1');
+    await SecureStore.setItemAsync('arvanto.web-session.v1', '');
     await SecureStore.setItemAsync(LAST_RESTORE_ITEM, new Date().toISOString());
   } finally {
     await source.closeAsync();

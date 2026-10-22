@@ -21,11 +21,19 @@ npm run android:release
 
 El APK se genera en `android/app/build/outputs/apk/release/app-release.apk`. La firma actual es de desarrollo para permitir actualizar el teléfono de trabajo; configura una clave propia antes de distribuir públicamente. No desinstales la app para actualizar: instala encima para conservar los datos.
 
+## Acceso y registro web
+
+La app solo muestra **Usuario**, **Contraseña** e **Iniciar sesión**. El registro, recuperación de contraseña y permisos pertenecen a la futura web `https://arvanto.asyncz.tech`.
+
+El servidor todavía no está implementado. La app está preparada para su API en `https://arvanto.asyncz.tech/api`; no incluye cuentas de prueba ni autentica con PIN local. Hasta desplegar ese servicio no es posible iniciar sesión con una cuenta real. El contrato requerido está en [docs/auth-api.md](docs/auth-api.md).
+
+Una sesión autenticada se guarda cifrada con Android Keystore y se recupera al reabrir la app. No se guarda la contraseña ni se cierra la sesión por dejar la app en segundo plano. El cierre manual o la opción **Finalizar jornada y cerrar sesión** en el corte de caja invalidan el acceso guardado. Un cambio de turno puede conservar la sesión desactivando esa opción. Sin internet se conserva una sesión previamente validada hasta su vencimiento; un cierre remoto se detecta al recuperar conectividad.
+
 ## Organización
 
 - `App.tsx`: navegación con React Navigation y pantallas disponibles según el perfil.
 - `src/screens/`: productos, ventas, caja, respaldos, inventario, clientes, compras, reportes y usuarios.
-- `src/database/`: repositorios y nueve migraciones SQLite.
+- `src/database/`: repositorios y diez migraciones SQLite.
 - `src/native/`: acceso TypeScript a los servicios Android.
 - `android/`: proyecto nativo mantenido directamente, sin generación de Expo.
 

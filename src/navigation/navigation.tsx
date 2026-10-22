@@ -2,7 +2,7 @@ import { cloneElement, type ReactElement } from 'react';
 import { CommonActions, createNavigationContainerRef } from '@react-navigation/native';
 export { useFocusEffect } from '@react-navigation/native';
 export type Href = string;
-export type RootRoutes = { Main: { screen?: string } | undefined; access: undefined; inventory: undefined; 'inventory-count': undefined; customers: undefined; purchases: undefined; reports: undefined; users: undefined; audit: undefined; 'change-pin': undefined };
+export type RootRoutes = { Main: { screen?: string } | undefined; access: undefined; inventory: undefined; 'inventory-count': undefined; customers: undefined; purchases: undefined; reports: undefined; users: undefined; audit: undefined };
 export const navigationRef = createNavigationContainerRef<RootRoutes>();
 const tabs = new Set(['index', 'products', 'sale', 'cash', 'backup', 'settings']);
 function destination(path: string) {

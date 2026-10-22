@@ -1,3 +1,13 @@
+# Acceso por usuario y contraseña — 22 de octubre de 2026
+
+- Login sin registro local ni PIN. Endpoint configurado para la futura API `https://arvanto.asyncz.tech/api`.
+- Pruebas automatizadas de credenciales, respuestas inválidas, revocación, jornada cerrada, persistencia, expiración, separación de negocios y cierre de sesión interrumpido.
+- Pruebas de cierre de caja: finalizar jornada invalida la sesión; cambiar de turno la conserva; un fallo no cierra el acceso.
+- `npm run lint`, `npm run typecheck` y 41 pruebas (siete suites): pasaron.
+- APK release 1.2.0 compilada e instalada sobre la anterior, sin desinstalar. Verificado en M2101K6R: solo Usuario, Contraseña e Iniciar sesión, sin registro ni PIN.
+- Diez migraciones desde una base vacía: integridad SQLite `ok` y estado de acceso inicializado.
+- La API aún no existe; las pruebas de autenticación usan respuestas simuladas. No se ha validado un acceso real, ni registro web, ni invalidación entre dispositivos.
+
 # Verificación de React Native sin Expo
 
 Migración del 22 de octubre de 2026. La documentación histórica al final corresponde al entorno anterior.

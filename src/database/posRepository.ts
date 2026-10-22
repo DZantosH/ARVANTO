@@ -116,7 +116,7 @@ export async function addCashMovement(db: SQLiteDatabase, kind: 'in' | 'out', am
   });
 }
 
-export async function closeCashSession(db: SQLiteDatabase, countedCashCents: number, closedBy = 'Administrador'): Promise<{ expectedCashCents: number; differenceCents: number }> {
+export async function closeCashSession(db: SQLiteDatabase, countedCashCents: number, closedBy = 'Administrador', endBusinessDay = false): Promise<{ expectedCashCents: number; differenceCents: number }> {
   if (!Number.isSafeInteger(countedCashCents) || countedCashCents < 0) throw new Error('El efectivo contado no es válido.');
   let result = { expectedCashCents: 0, differenceCents: 0 };
   await db.withExclusiveTransactionAsync(async (txn) => {
@@ -129,6 +129,7 @@ export async function closeCashSession(db: SQLiteDatabase, countedCashCents: num
        closed_by = ?, expected_cash_cents = ?, counted_cash_cents = ?, difference_cents = ? WHERE id = ? AND closed_at IS NULL`,
       closedBy, result.expectedCashCents, countedCashCents, result.differenceCents, session.id,
     );
+    if (endBusinessDay) await txn.runAsync("UPDATE app_auth_state SET session_epoch=session_epoch+1, last_end_reason='business_closed' WHERE id=1");
   });
   return result;
 }
