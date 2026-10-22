@@ -339,4 +339,54 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
       await db.runAsync('INSERT INTO schema_migrations (version) VALUES (?)', 7);
     });
   }
+
+  if ((current?.version ?? 0) < 8) {
+    await db.withTransactionAsync(async () => {
+      await db.execAsync(`
+        ALTER TABLE purchases ADD COLUMN status TEXT NOT NULL DEFAULT 'received' CHECK (status IN ('pending', 'partial', 'received'));
+        ALTER TABLE purchases ADD COLUMN is_legacy INTEGER NOT NULL DEFAULT 0 CHECK (is_legacy IN (0, 1));
+        ALTER TABLE purchase_items ADD COLUMN received_quantity REAL NOT NULL DEFAULT 0 CHECK (received_quantity >= 0);
+        UPDATE purchase_items SET received_quantity = quantity;
+        UPDATE purchases SET is_legacy = 1;
+
+        CREATE TABLE purchase_receipts (
+          id TEXT PRIMARY KEY NOT NULL,
+          purchase_id TEXT NOT NULL REFERENCES purchases(id) ON DELETE RESTRICT,
+          reference TEXT NOT NULL DEFAULT '',
+          received_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+          created_by TEXT NOT NULL DEFAULT 'Administrador'
+        );
+        CREATE INDEX purchase_receipts_purchase_idx ON purchase_receipts (purchase_id, received_at DESC);
+        CREATE TABLE purchase_receipt_items (
+          id TEXT PRIMARY KEY NOT NULL,
+          receipt_id TEXT NOT NULL REFERENCES purchase_receipts(id) ON DELETE RESTRICT,
+          purchase_item_id TEXT NOT NULL REFERENCES purchase_items(id) ON DELETE RESTRICT,
+          product_id TEXT NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
+          quantity REAL NOT NULL CHECK (quantity > 0),
+          unit_cost_cents INTEGER NOT NULL CHECK (unit_cost_cents >= 0)
+        );
+        CREATE INDEX purchase_receipt_items_receipt_idx ON purchase_receipt_items (receipt_id);
+        INSERT INTO purchase_receipts (id, purchase_id, reference, received_at, created_by)
+          SELECT 'legacy-' || id, id, reference, created_at, created_by FROM purchases;
+        INSERT INTO purchase_receipt_items (id, receipt_id, purchase_item_id, product_id, quantity, unit_cost_cents)
+          SELECT lower(hex(randomblob(16))), 'legacy-' || purchase_id, id, product_id, received_quantity, unit_cost_cents
+          FROM purchase_items WHERE received_quantity > 0;
+
+        CREATE TABLE supplier_payments (
+          id TEXT PRIMARY KEY NOT NULL,
+          purchase_id TEXT NOT NULL REFERENCES purchases(id) ON DELETE RESTRICT,
+          supplier_id TEXT NOT NULL REFERENCES suppliers(id) ON DELETE RESTRICT,
+          session_id TEXT NOT NULL REFERENCES cash_sessions(id) ON DELETE RESTRICT,
+          method TEXT NOT NULL CHECK (method IN ('cash', 'card', 'transfer')),
+          amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
+          note TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+          created_by TEXT NOT NULL DEFAULT 'Administrador'
+        );
+        CREATE INDEX supplier_payments_purchase_time_idx ON supplier_payments (purchase_id, created_at DESC);
+        CREATE INDEX supplier_payments_supplier_time_idx ON supplier_payments (supplier_id, created_at DESC);
+      `);
+      await db.runAsync('INSERT INTO schema_migrations (version) VALUES (?)', 8);
+    });
+  }
 }
