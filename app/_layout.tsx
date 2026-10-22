@@ -18,6 +18,7 @@ export default function RootLayout() {
             <Stack.Screen name="access" />
             <Stack.Screen name="(tabs)" />
             <Stack.Screen name="inventory" />
+            <Stack.Screen name="inventory-count" />
             <Stack.Screen name="customers" />
             <Stack.Screen name="purchases" />
             <Stack.Screen name="reports" />
@@ -38,7 +39,7 @@ function AuthNavigationGuard() {
     if (!user && section !== 'access') router.replace('/access' as Href);
     else if (user && section === 'access') router.replace('/(tabs)' as Href);
     else if (user && user.role !== 'admin' && section === 'users') router.replace('/(tabs)/settings' as Href);
-    else if (user?.role === 'cashier' && ['purchases', 'reports', 'backup', 'inventory'].includes(section)) router.replace('/(tabs)' as Href);
+    else if (user?.role === 'cashier' && ['purchases', 'reports', 'backup', 'inventory', 'inventory-count'].includes(section)) router.replace('/(tabs)' as Href);
   }, [ready, user, segments]);
   return null;
 }

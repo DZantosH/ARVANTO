@@ -13,7 +13,7 @@ type Props = {
 };
 
 const emptyValues: ProductFormValues = {
-  name: '', sku: '', description: '', cost: '', price: '', minimumStock: '0', openingStock: '0',
+  name: '', sku: '', barcode: '', description: '', cost: '', price: '', minimumStock: '0', openingStock: '0', unitName: 'pieza', saleUnitName: '', saleUnitFactor: '1', saleUnitPrice: '',
 };
 
 export function ProductFormModal({ visible, product, onClose, onSave, onSetActive }: Props) {
@@ -26,11 +26,16 @@ export function ProductFormModal({ visible, product, onClose, onSave, onSetActiv
   const [values, setValues] = useState<ProductFormValues>(() => product ? {
     name: product.name,
     sku: product.sku ?? '',
+    barcode: product.barcode ?? '',
     description: product.description,
     cost: (product.cost_cents / 100).toFixed(2),
     price: (product.price_cents / 100).toFixed(2),
     minimumStock: String(product.minimum_stock),
     openingStock: '0',
+    unitName: product.unit_name,
+    saleUnitName: product.sale_unit_name,
+    saleUnitFactor: String(product.sale_unit_factor),
+    saleUnitPrice: product.sale_unit_price_cents === null ? '' : (product.sale_unit_price_cents / 100).toFixed(2),
   } : { ...emptyValues });
 
   const updateValue = (key: keyof ProductFormValues, value: string) => {
@@ -52,8 +57,12 @@ export function ProductFormModal({ visible, product, onClose, onSave, onSetActiv
       onClose();
     } catch (error) {
       const message = error instanceof Error ? error.message : '';
-      setFormError(message.includes('products.sku') || message.includes('products_sku_nocase_idx')
-        ? 'Ya existe un producto con esa clave.'
+      setFormError(message.includes('barcode')
+        ? 'Ya existe un producto con ese código de barras.'
+        : message.includes('products.sku') || message.includes('products_sku_nocase_idx')
+          ? 'Ya existe un producto con esa clave.'
+          : message.startsWith('No se puede') || message.startsWith('Cancela')
+            ? message
         : 'No se pudo guardar el producto. Intenta de nuevo.');
     } finally {
       setSaving(false);
@@ -101,6 +110,7 @@ export function ProductFormModal({ visible, product, onClose, onSave, onSetActiv
         <ScrollView contentContainerStyle={styles.form} keyboardShouldPersistTaps="handled">
           <Field label="Nombre del producto *" value={values.name} onChangeText={(value) => updateValue('name', value)} error={errors.name} placeholder="Ej. Cemento gris 50 kg" maxLength={140} returnKeyType="next" />
           <Field label="Clave / SKU" value={values.sku} onChangeText={(value) => updateValue('sku', value)} error={errors.sku} placeholder="Opcional, debe ser única" autoCapitalize="characters" maxLength={60} returnKeyType="next" />
+          <Field label="Código de barras" value={values.barcode ?? ''} onChangeText={(value) => updateValue('barcode', value)} error={errors.barcode} placeholder="Escanea o escribe el código" maxLength={100} returnKeyType="next" />
           <Field label="Descripción" value={values.description} onChangeText={(value) => updateValue('description', value)} error={errors.description} placeholder="Marca, presentación u otros detalles" multiline maxLength={500} />
 
           <View style={styles.twoColumns}>
@@ -113,16 +123,25 @@ export function ProductFormModal({ visible, product, onClose, onSave, onSetActiv
           </View>
 
           <View style={styles.twoColumns}>
-            <View style={styles.column}>
-              <Field label="Stock mínimo" value={values.minimumStock} onChangeText={(value) => updateValue('minimumStock', value)} error={errors.minimumStock} placeholder="0" keyboardType="decimal-pad" />
-            </View>
+            <View style={styles.column}><Field label="Unidad base de inventario" value={values.unitName ?? 'pieza'} onChangeText={(value) => updateValue('unitName', value)} error={errors.unitName} placeholder="pieza, kg, litro" maxLength={24} /></View>
+            <View style={styles.column}><Field label="Stock mínimo (en unidad base)" value={values.minimumStock} onChangeText={(value) => updateValue('minimumStock', value)} error={errors.minimumStock} placeholder="0" keyboardType="decimal-pad" /></View>
+          </View>
+
+          <Text style={styles.helper}>Conversión opcional para vender empaques. El inventario siempre se guarda en unidad base.</Text>
+          <View style={styles.twoColumns}>
+            <View style={styles.column}><Field label="Unidad de venta alterna" value={values.saleUnitName ?? ''} onChangeText={(value) => updateValue('saleUnitName', value)} error={errors.saleUnitName} placeholder="caja, paquete" maxLength={24} /></View>
+            <View style={styles.column}><Field label="Equivale a unidades base" value={values.saleUnitFactor ?? '1'} onChangeText={(value) => updateValue('saleUnitFactor', value)} error={errors.saleUnitFactor} placeholder="12" keyboardType="decimal-pad" /></View>
+          </View>
+          {(values.saleUnitName ?? '').trim() ? <Field label="Precio por unidad alterna (opcional)" value={values.saleUnitPrice ?? ''} onChangeText={(value) => updateValue('saleUnitPrice', value)} error={errors.saleUnitPrice} placeholder="Vacío = precio base × conversión" keyboardType="decimal-pad" prefix="$" /> : null}
+
+          <View style={styles.twoColumns}>
             {isNew ? (
               <View style={styles.column}>
-                <Field label="Existencia inicial" value={values.openingStock} onChangeText={(value) => updateValue('openingStock', value)} error={errors.openingStock} placeholder="0" keyboardType="decimal-pad" />
+                <Field label="Existencia inicial (unidad base)" value={values.openingStock} onChangeText={(value) => updateValue('openingStock', value)} error={errors.openingStock} placeholder="0" keyboardType="decimal-pad" />
               </View>
             ) : (
               <View style={[styles.column, styles.stockReadOnly]}>
-                <Text style={styles.label}>Existencia actual</Text>
+                <Text style={styles.label}>Existencia actual en {product?.unit_name ?? 'unidad base'}</Text>
                 <Text style={styles.stockValue}>{product?.stock_quantity ?? 0}</Text>
                 <Text style={styles.helper}>Se ajustará desde Inventario.</Text>
               </View>

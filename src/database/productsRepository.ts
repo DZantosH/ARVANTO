@@ -4,12 +4,17 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 export type Product = {
   id: string;
   sku: string | null;
+  barcode: string | null;
   name: string;
   description: string;
   cost_cents: number;
   price_cents: number;
   stock_quantity: number;
   minimum_stock: number;
+  unit_name: string;
+  sale_unit_name: string;
+  sale_unit_factor: number;
+  sale_unit_price_cents: number | null;
   is_active: number;
   created_at: string;
   updated_at: string;
@@ -17,11 +22,16 @@ export type Product = {
 
 export type ProductInput = {
   sku: string | null;
+  barcode: string | null;
   name: string;
   description: string;
   costCents: number;
   priceCents: number;
   minimumStock: number;
+  unitName: string;
+  saleUnitName: string;
+  saleUnitFactor: number;
+  saleUnitPriceCents: number | null;
   openingStock?: number;
 };
 
@@ -50,9 +60,9 @@ export async function searchProducts(
 
   const trimmedSearch = search.trim();
   if (trimmedSearch) {
-    conditions.push("(name LIKE ? ESCAPE '!' OR COALESCE(sku, '') LIKE ? ESCAPE '!' OR description LIKE ? ESCAPE '!')");
+    conditions.push("(name LIKE ? ESCAPE '!' OR COALESCE(sku, '') LIKE ? ESCAPE '!' OR COALESCE(barcode, '') LIKE ? ESCAPE '!' OR description LIKE ? ESCAPE '!')");
     const escaped = `%${trimmedSearch.replace(/[!%_]/g, '!$&')}%`;
-    parameters.push(escaped, escaped, escaped);
+    parameters.push(escaped, escaped, escaped, escaped);
   }
 
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -61,7 +71,7 @@ export async function searchProducts(
     ...parameters,
   );
   const items = await db.getAllAsync<Product>(
-    `SELECT id, sku, name, description, cost_cents, price_cents, stock_quantity, minimum_stock, is_active, created_at, updated_at
+    `SELECT id, sku, barcode, name, description, cost_cents, price_cents, stock_quantity, minimum_stock, unit_name, sale_unit_name, sale_unit_factor, sale_unit_price_cents, is_active, created_at, updated_at
      FROM products ${where}
      ORDER BY is_active DESC, name COLLATE NOCASE ASC
      LIMIT ? OFFSET ?`,
@@ -78,9 +88,9 @@ export async function createProduct(db: SQLiteDatabase, input: ProductInput, cre
   const openingStock = input.openingStock ?? 0;
   await db.withExclusiveTransactionAsync(async (txn) => {
     await txn.runAsync(
-      `INSERT INTO products (id, sku, name, description, cost_cents, price_cents, stock_quantity, minimum_stock)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      id, normalizeSku(input.sku), input.name.trim(), input.description.trim(), input.costCents, input.priceCents, openingStock, input.minimumStock,
+      `INSERT INTO products (id, sku, barcode, name, description, cost_cents, price_cents, stock_quantity, minimum_stock, unit_name, sale_unit_name, sale_unit_factor, sale_unit_price_cents)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      id, normalizeSku(input.sku), normalizeBarcode(input.barcode), input.name.trim(), input.description.trim(), input.costCents, input.priceCents, openingStock, input.minimumStock, input.unitName, input.saleUnitName, input.saleUnitFactor, input.saleUnitPriceCents,
     );
     if (openingStock > 0) await txn.runAsync(
       `INSERT INTO inventory_movements (id, product_id, kind, quantity_delta, reference_id, reason, created_by)
@@ -94,8 +104,10 @@ export async function importProducts(db: SQLiteDatabase, inputs: ProductInput[],
   if (!inputs.length) return;
   await db.withExclusiveTransactionAsync(async (transaction) => {
     const seenSkus = new Set<string>();
+    const seenBarcodes = new Set<string>();
     for (const input of inputs) {
       const sku = normalizeSku(input.sku);
+      const barcode = normalizeBarcode(input.barcode);
       const productId = Crypto.randomUUID();
       const openingStock = input.openingStock ?? 0;
       if (sku) {
@@ -107,17 +119,29 @@ export async function importProducts(db: SQLiteDatabase, inputs: ProductInput[],
         );
         if (existing) throw new Error('duplicate_existing_sku');
       }
+      if (barcode) {
+        const key = barcode.toLocaleUpperCase('en-US');
+        if (seenBarcodes.has(key)) throw new Error('duplicate_import_barcode');
+        seenBarcodes.add(key);
+        const existing = await transaction.getFirstAsync<{ id: string }>('SELECT id FROM products WHERE barcode = ? COLLATE NOCASE LIMIT 1', barcode);
+        if (existing) throw new Error('duplicate_existing_barcode');
+      }
       await transaction.runAsync(
-        `INSERT INTO products (id, sku, name, description, cost_cents, price_cents, stock_quantity, minimum_stock)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO products (id, sku, barcode, name, description, cost_cents, price_cents, stock_quantity, minimum_stock, unit_name, sale_unit_name, sale_unit_factor, sale_unit_price_cents)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         productId,
         sku,
+        barcode,
         input.name.trim(),
         input.description.trim(),
         input.costCents,
         input.priceCents,
         openingStock,
         input.minimumStock,
+        input.unitName,
+        input.saleUnitName,
+        input.saleUnitFactor,
+        input.saleUnitPriceCents,
       );
       if (openingStock > 0) await transaction.runAsync(
         `INSERT INTO inventory_movements (id, product_id, kind, quantity_delta, reference_id, reason, created_by)
@@ -129,19 +153,28 @@ export async function importProducts(db: SQLiteDatabase, inputs: ProductInput[],
 }
 
 export async function updateProduct(db: SQLiteDatabase, id: string, input: ProductInput): Promise<void> {
-  await db.runAsync(
-    `UPDATE products
-     SET sku = ?, name = ?, description = ?, cost_cents = ?, price_cents = ?, minimum_stock = ?,
-         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-     WHERE id = ?`,
-    normalizeSku(input.sku),
-    input.name.trim(),
-    input.description.trim(),
-    input.costCents,
-    input.priceCents,
-    input.minimumStock,
-    id,
-  );
+  await db.withExclusiveTransactionAsync(async (txn) => {
+    const current = await txn.getFirstAsync<{ stock_quantity: number; unit_name: string; sale_unit_name: string; sale_unit_factor: number; sale_unit_price_cents: number | null }>(
+      'SELECT stock_quantity,unit_name,sale_unit_name,sale_unit_factor,sale_unit_price_cents FROM products WHERE id=?', id,
+    );
+    if (!current) throw new Error('No se encontró el producto.');
+    if (current.stock_quantity > 0 && current.unit_name !== input.unitName) throw new Error('No se puede cambiar la unidad base mientras haya existencias. Ajusta el inventario primero.');
+    const conversionChanged = current.sale_unit_name !== input.saleUnitName || current.sale_unit_factor !== input.saleUnitFactor || current.sale_unit_price_cents !== input.saleUnitPriceCents;
+    if (conversionChanged) {
+      const reservation = await txn.getFirstAsync<{ id: string }>(
+        "SELECT i.id FROM sales_document_items i JOIN sales_documents d ON d.id=i.document_id WHERE i.product_id=? AND d.kind='layaway' AND d.status='open' LIMIT 1", id,
+      );
+      if (reservation) throw new Error('Cancela los apartados abiertos de este producto antes de cambiar su unidad de venta.');
+    }
+    await txn.runAsync(
+      `UPDATE products
+       SET sku = ?, barcode = ?, name = ?, description = ?, cost_cents = ?, price_cents = ?, minimum_stock = ?, unit_name = ?, sale_unit_name = ?, sale_unit_factor = ?, sale_unit_price_cents = ?,
+           updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+       WHERE id = ?`,
+      normalizeSku(input.sku), normalizeBarcode(input.barcode), input.name.trim(), input.description.trim(), input.costCents, input.priceCents,
+      input.minimumStock, input.unitName, input.saleUnitName, input.saleUnitFactor, input.saleUnitPriceCents, id,
+    );
+  });
 }
 
 export async function setProductActive(db: SQLiteDatabase, id: string, isActive: boolean): Promise<void> {
@@ -154,5 +187,10 @@ export async function setProductActive(db: SQLiteDatabase, id: string, isActive:
 
 function normalizeSku(sku: string | null): string | null {
   const normalized = sku?.trim().toUpperCase() ?? '';
+  return normalized || null;
+}
+
+function normalizeBarcode(barcode: string | null): string | null {
+  const normalized = barcode?.trim() ?? '';
   return normalized || null;
 }

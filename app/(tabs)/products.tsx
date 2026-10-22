@@ -115,7 +115,7 @@ export default function ProductsScreen() {
           accessibilityLabel="Buscar productos"
           value={query}
           onChangeText={setQuery}
-          placeholder="Nombre, clave o descripción"
+          placeholder="Nombre, clave, barras o descripción"
           placeholderTextColor={theme.colors.muted}
           returnKeyType="search"
           style={styles.searchInput}
@@ -175,13 +175,13 @@ function ProductRow({ product, canEdit, onPress }: { product: Product; canEdit: 
       <View style={styles.productTop}>
         <View style={styles.productTitleGroup}>
           <Text style={[styles.productName, !product.is_active && styles.inactiveName]} numberOfLines={2}>{product.name}</Text>
-          <Text style={styles.productSku}>{product.sku ? `Clave ${product.sku}` : 'Sin clave'}</Text>
+          <Text style={styles.productSku}>{product.sku ? `Clave ${product.sku}` : 'Sin clave'}{product.barcode ? ` · Barras ${product.barcode}` : ''}</Text>
         </View>
         <Text style={styles.productPrice}>{formatCurrencyFromCents(product.price_cents)}</Text>
       </View>
       {product.description ? <Text style={styles.description} numberOfLines={2}>{product.description}</Text> : null}
       <View style={styles.productBottom}>
-        <Text style={styles.stockText}>Existencia <Text style={styles.stockStrong}>{product.stock_quantity}</Text></Text>
+        <Text style={styles.stockText}>Existencia <Text style={styles.stockStrong}>{product.stock_quantity} {product.unit_name}</Text></Text>
         <View style={styles.badges}>
           {isLow ? <View style={styles.lowBadge}><Text style={styles.lowBadgeText}>Stock bajo</Text></View> : null}
           {!product.is_active ? <View style={styles.inactiveBadge}><Text style={styles.inactiveBadgeText}>Inactivo</Text></View> : null}

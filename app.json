@@ -38,7 +38,15 @@
       "expo-sqlite",
       "expo-sharing",
       "expo-secure-store",
-      "expo-system-ui"
+      "expo-system-ui",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "FerrePOS usa la cámara para escanear códigos de barras durante el inventario.",
+          "microphonePermission": "FerrePOS no usa el micrófono.",
+          "recordAudioAndroid": false
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

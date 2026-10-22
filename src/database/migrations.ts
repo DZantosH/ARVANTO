@@ -288,4 +288,55 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
       await db.runAsync('INSERT INTO schema_migrations (version) VALUES (?)', 6);
     });
   }
+
+  if ((current?.version ?? 0) < 7) {
+    await db.withTransactionAsync(async () => {
+      await db.execAsync(`
+        ALTER TABLE products ADD COLUMN barcode TEXT;
+        ALTER TABLE products ADD COLUMN unit_name TEXT NOT NULL DEFAULT 'pieza';
+        ALTER TABLE products ADD COLUMN sale_unit_name TEXT NOT NULL DEFAULT '';
+        ALTER TABLE products ADD COLUMN sale_unit_factor REAL NOT NULL DEFAULT 1 CHECK (sale_unit_factor > 0);
+        ALTER TABLE products ADD COLUMN sale_unit_price_cents INTEGER CHECK (sale_unit_price_cents IS NULL OR sale_unit_price_cents >= 0);
+        CREATE UNIQUE INDEX products_barcode_nocase_idx ON products (barcode COLLATE NOCASE) WHERE barcode IS NOT NULL;
+
+        ALTER TABLE sale_items ADD COLUMN inventory_quantity REAL NOT NULL DEFAULT 0 CHECK (inventory_quantity >= 0);
+        ALTER TABLE sale_items ADD COLUMN unit_name TEXT NOT NULL DEFAULT 'pieza';
+        ALTER TABLE sale_items ADD COLUMN unit_factor REAL NOT NULL DEFAULT 1 CHECK (unit_factor > 0);
+        UPDATE sale_items SET inventory_quantity = quantity;
+        ALTER TABLE sale_return_items ADD COLUMN inventory_quantity REAL NOT NULL DEFAULT 0 CHECK (inventory_quantity >= 0);
+        UPDATE sale_return_items SET inventory_quantity = quantity;
+        ALTER TABLE sales_document_items ADD COLUMN unit_name TEXT NOT NULL DEFAULT 'pieza';
+        ALTER TABLE sales_document_items ADD COLUMN unit_factor REAL NOT NULL DEFAULT 1 CHECK (unit_factor > 0);
+        ALTER TABLE sales_document_items ADD COLUMN inventory_quantity REAL NOT NULL DEFAULT 0 CHECK (inventory_quantity >= 0);
+        UPDATE sales_document_items SET inventory_quantity = quantity;
+
+        CREATE TABLE inventory_counts (
+          id TEXT PRIMARY KEY NOT NULL,
+          count_number INTEGER NOT NULL UNIQUE,
+          status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'completed', 'cancelled')),
+          started_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+          completed_at TEXT,
+          created_by TEXT NOT NULL DEFAULT 'Administrador',
+          completed_by TEXT
+        );
+        CREATE UNIQUE INDEX inventory_one_open_count_idx ON inventory_counts ((1)) WHERE status = 'open';
+        CREATE INDEX inventory_counts_time_idx ON inventory_counts (started_at DESC);
+        CREATE TABLE inventory_count_items (
+          id TEXT PRIMARY KEY NOT NULL,
+          count_id TEXT NOT NULL REFERENCES inventory_counts(id) ON DELETE RESTRICT,
+          product_id TEXT NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
+          product_name TEXT NOT NULL,
+          barcode TEXT,
+          system_quantity REAL NOT NULL CHECK (system_quantity >= 0),
+          counted_quantity REAL CHECK (counted_quantity IS NULL OR counted_quantity >= 0),
+          counted_at TEXT,
+          applied_delta REAL,
+          UNIQUE (count_id, product_id)
+        );
+        CREATE INDEX inventory_count_items_count_idx ON inventory_count_items (count_id, product_name COLLATE NOCASE);
+        CREATE INDEX inventory_count_items_barcode_idx ON inventory_count_items (count_id, barcode COLLATE NOCASE);
+      `);
+      await db.runAsync('INSERT INTO schema_migrations (version) VALUES (?)', 7);
+    });
+  }
 }

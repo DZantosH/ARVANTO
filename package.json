@@ -5,6 +5,7 @@
   "dependencies": {
     "@dariyd/react-native-pdf-page-image": "^2.1.0",
     "expo": "~58.0.16",
+    "expo-camera": "~58.0.12",
     "expo-constants": "~58.0.12",
     "expo-crypto": "~58.0.7",
     "expo-document-picker": "~58.0.4",

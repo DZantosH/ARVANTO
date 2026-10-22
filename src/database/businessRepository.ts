@@ -1,10 +1,10 @@
 import * as Crypto from 'expo-crypto';
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-export type InventoryMovement = { id: string; product_name: string; sku: string | null; kind: 'sale' | 'adjustment' | 'purchase'; quantity_delta: number; reason: string; created_at: string; created_by: string };
+export type InventoryMovement = { id: string; product_name: string; sku: string | null; unit_name: string; kind: 'sale' | 'adjustment' | 'purchase'; quantity_delta: number; reason: string; created_at: string; created_by: string };
 export type Customer = { id: string; name: string; phone: string; email: string; address: string; credit_limit_cents: number; is_active: number; balance_cents: number };
 export type Supplier = { id: string; name: string; phone: string; email: string };
-export type ProductOption = { id: string; name: string; sku: string | null; cost_cents: number; stock_quantity: number };
+export type ProductOption = { id: string; name: string; sku: string | null; barcode: string | null; unit_name: string; cost_cents: number; stock_quantity: number };
 export type AppUser = { id: string; name: string; role: 'admin' | 'manager' | 'cashier'; is_active: number };
 export type UserRole = AppUser['role'];
 
@@ -52,7 +52,7 @@ export async function getInventoryMovements(db: SQLiteDatabase, productId?: stri
   const where = productId ? 'WHERE m.product_id = ?' : '';
   const args = productId ? [productId] : [];
   return db.getAllAsync<InventoryMovement>(
-    `SELECT m.id, p.name AS product_name, p.sku, m.kind, m.quantity_delta, m.reason, m.created_at, m.created_by
+    `SELECT m.id, p.name AS product_name, p.sku, p.unit_name, m.kind, m.quantity_delta, m.reason, m.created_at, m.created_by
      FROM inventory_movements m JOIN products p ON p.id = m.product_id ${where}
      ORDER BY m.created_at DESC LIMIT 100`, ...args,
   );
@@ -111,7 +111,13 @@ export async function getActiveSuppliers(db: SQLiteDatabase) {
 }
 
 export async function getActiveProductOptions(db: SQLiteDatabase) {
-  return db.getAllAsync<ProductOption>('SELECT id, name, sku, cost_cents, stock_quantity FROM products WHERE is_active = 1 ORDER BY name COLLATE NOCASE LIMIT 500');
+  return db.getAllAsync<ProductOption>('SELECT id, name, sku, barcode, unit_name, cost_cents, stock_quantity FROM products WHERE is_active = 1 ORDER BY name COLLATE NOCASE LIMIT 500');
+}
+
+export async function getLowStockProducts(db: SQLiteDatabase) {
+  return db.getAllAsync<{ id: string; name: string; sku: string | null; barcode: string | null; stock_quantity: number; minimum_stock: number; unit_name: string }>(
+    'SELECT id,name,sku,barcode,stock_quantity,minimum_stock,unit_name FROM products WHERE is_active=1 AND minimum_stock>0 AND stock_quantity<=minimum_stock ORDER BY (minimum_stock-stock_quantity) DESC,name COLLATE NOCASE LIMIT 100',
+  );
 }
 
 export async function createSupplier(db: SQLiteDatabase, name: string, phone = '', email = '') {
@@ -155,7 +161,7 @@ export async function getBusinessReport(db: SQLiteDatabase) {
   const today = await db.getFirstAsync<{ sales_cents: number; tickets: number; cost_cents: number; credit_cents: number }>(
     `SELECT COALESCE(SUM(total_cents), 0) - COALESCE((SELECT SUM(r.refund_cents) FROM sale_returns r JOIN sales rs ON rs.id=r.sale_id WHERE rs.status='completed' AND date(r.created_at, 'localtime') = date('now', 'localtime')),0) AS sales_cents,
       COUNT(*) AS tickets, COALESCE(SUM(credit_cents), 0) AS credit_cents,
-      (SELECT CAST(ROUND(COALESCE(SUM(i.unit_cost_cents * i.quantity), 0)) AS INTEGER) - COALESCE((SELECT ROUND(SUM(si.unit_cost_cents * ri.quantity)) FROM sale_return_items ri JOIN sale_items si ON si.id=ri.sale_item_id JOIN sale_returns sr ON sr.id=ri.return_id WHERE date(sr.created_at, 'localtime') = date('now', 'localtime')),0) FROM sale_items i JOIN sales s ON s.id = i.sale_id
+      (SELECT CAST(ROUND(COALESCE(SUM(i.unit_cost_cents * i.inventory_quantity), 0)) AS INTEGER) - COALESCE((SELECT ROUND(SUM(si.unit_cost_cents * ri.inventory_quantity)) FROM sale_return_items ri JOIN sale_items si ON si.id=ri.sale_item_id JOIN sale_returns sr ON sr.id=ri.return_id WHERE date(sr.created_at, 'localtime') = date('now', 'localtime')),0) FROM sale_items i JOIN sales s ON s.id = i.sale_id
        WHERE s.status = 'completed' AND date(s.created_at, 'localtime') = date('now', 'localtime')) AS cost_cents
      FROM sales WHERE status = 'completed' AND date(created_at, 'localtime') = date('now', 'localtime')`,
   );

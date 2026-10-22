@@ -8,15 +8,20 @@ export type ProductImportDraft = {
 const aliases: Record<keyof ProductFormValues, string[]> = {
   name: ['nombre', 'nombre producto', 'producto', 'product name', 'descripcion producto', 'articulo', 'descripción del producto'],
   sku: ['sku', 'clave', 'codigo', 'código', 'codigo producto', 'clave producto', 'code'],
+  barcode: ['codigo barras', 'código barras', 'barcode', 'ean', 'upc', 'gtin'],
   description: ['descripcion', 'descripción', 'detalle', 'observaciones'],
   cost: ['costo', 'coste', 'precio costo', 'costo unitario', 'cost'],
   price: ['precio', 'precio venta', 'precio menudeo', 'venta', 'pvp', 'unit price', 'price', 'precio publico', 'precio público'],
   minimumStock: ['stock minimo', 'stock mínimo', 'stock min', 'minimo', 'mínimo', 'existencia minima'],
   openingStock: ['existencia', 'stock', 'inventario', 'cantidad', 'existencia inicial', 'quantity'],
+  unitName: ['unidad', 'unidad base', 'unidad medida', 'unit', 'base unit'],
+  saleUnitName: ['unidad conversion', 'unidad conversión', 'presentacion', 'presentación', 'venta por', 'sale unit'],
+  saleUnitFactor: ['factor conversion', 'factor conversión', 'conversion', 'conversión', 'unidades por empaque', 'factor'],
+  saleUnitPrice: ['precio conversion', 'precio conversión', 'precio por empaque', 'precio unidad conversion'],
 };
 
 const blank = (): ProductFormValues => ({
-  name: '', sku: '', description: '', cost: '0', price: '', minimumStock: '0', openingStock: '0',
+  name: '', sku: '', barcode: '', description: '', cost: '0', price: '', minimumStock: '0', openingStock: '0', unitName: 'pieza', saleUnitName: '', saleUnitFactor: '1', saleUnitPrice: '',
 });
 
 export function parseProductMatrix(matrix: unknown[][]): ProductImportDraft[] {

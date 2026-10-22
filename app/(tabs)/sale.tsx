@@ -10,7 +10,7 @@ import { printSaleReceipt, printSalesDocument } from '@/src/infrastructure/print
 import { getCustomers, type Customer } from '@/src/database/businessRepository';
 import { useAuth } from '@/src/ui/AuthProvider';
 
-type ProductRow = { id: string; name: string; sku: string | null; price_cents: number; cost_cents: number; stock_quantity: number };
+type ProductRow = { id: string; name: string; sku: string | null; barcode: string | null; price_cents: number; cost_cents: number; stock_quantity: number; unit_name: string; sale_unit_name: string; sale_unit_factor: number; sale_unit_price_cents: number | null };
 
 export default function SaleScreen() {
   const { theme, styles } = useThemeStyles();
@@ -68,21 +68,25 @@ export default function SaleScreen() {
     finally { setSearching(false); }
   };
 
-  const addProduct = (product: ProductRow) => {
-    if (product.stock_quantity <= 0) { setError(`${product.name} no tiene existencia disponible.`); return; }
+  const addProduct = (product: ProductRow, alternate = false) => {
+    const factor = alternate ? product.sale_unit_factor : 1;
+    const unitName = alternate ? product.sale_unit_name : product.unit_name;
+    const unitPrice = alternate ? product.sale_unit_price_cents ?? Math.round(product.price_cents * factor) : product.price_cents;
+    const unitStock = product.stock_quantity / factor;
+    if (unitStock <= 0) { setError(`${product.name} no tiene existencia disponible.`); return; }
     setError('');
     setCart((current) => {
-      const existing = current.find((line) => line.productId === product.id);
+      const existing = current.find((line) => line.productId === product.id && line.unitName === unitName);
       if (existing) {
-        if (existing.quantity >= product.stock_quantity) { setError(`Existencia insuficiente de ${product.name}.`); return current; }
-        return current.map((line) => line.productId === product.id ? { ...line, quantity: line.quantity + 1 } : line);
+        if (existing.quantity + 1 > unitStock) { setError(`Existencia insuficiente de ${product.name}.`); return current; }
+        return current.map((line) => line.productId === product.id && line.unitName === unitName ? { ...line, quantity: line.quantity + 1 } : line);
       }
-      return [...current, { productId: product.id, name: product.name, sku: product.sku, unitPriceCents: product.price_cents, unitCostCents: product.cost_cents, stock: product.stock_quantity, quantity: 1 }];
+      return [...current, { productId: product.id, name: product.name, sku: product.sku, unitPriceCents: unitPrice, unitCostCents: product.cost_cents, stock: unitStock, quantity: 1, unitName, inventoryFactor: factor }];
     });
   };
 
   const changeQuantity = (line: CartLine, delta: number) => setCart((current) => current.flatMap((item) => {
-    if (item.productId !== line.productId) return [item];
+    if (item.productId !== line.productId || item.unitName !== line.unitName) return [item];
     const quantity = item.quantity + delta;
     if (quantity <= 0) return [];
     if (quantity > item.stock) { setError(`Existencia insuficiente de ${item.name}.`); return [item]; }
@@ -159,17 +163,20 @@ export default function SaleScreen() {
         <View style={styles.catalog}>
           <Text style={styles.sectionTitle}>{query ? 'Resultados' : 'Catálogo'}</Text>
           {searching ? <ActivityIndicator color={theme.colors.primary} style={styles.loader} /> : products.length ? products.map((product) => (
-            <Pressable key={product.id} disabled={!openSession} onPress={() => addProduct(product)} style={styles.productCard}>
-              <View style={styles.rowBetween}><Text style={styles.productName} numberOfLines={1}>{product.name}</Text><Text style={styles.price}>{formatCurrencyFromCents(product.price_cents)}</Text></View>
-              <Text style={styles.meta}>{product.sku ? `Clave ${product.sku}` : 'Sin clave'} · Existencia ${product.stock_quantity}</Text>
-            </Pressable>
+            <View key={product.id} style={styles.productCard}>
+              <Pressable disabled={!openSession} onPress={() => addProduct(product)}>
+                <View style={styles.rowBetween}><Text style={styles.productName} numberOfLines={1}>{product.name}</Text><Text style={styles.price}>{formatCurrencyFromCents(product.price_cents)} / {product.unit_name}</Text></View>
+                <Text style={styles.meta}>{product.sku ? `Clave ${product.sku}` : 'Sin clave'}{product.barcode ? ` · ${product.barcode}` : ''} · Existencia {product.stock_quantity} {product.unit_name}</Text>
+              </Pressable>
+              {product.sale_unit_name ? <Pressable disabled={!openSession || product.stock_quantity < product.sale_unit_factor} onPress={() => addProduct(product, true)} style={styles.alternateUnit}><Text style={styles.price}>＋ {product.sale_unit_name} × {product.sale_unit_factor} · {formatCurrencyFromCents(product.sale_unit_price_cents ?? Math.round(product.price_cents * product.sale_unit_factor))}</Text></Pressable> : null}
+            </View>
           )) : <Text style={styles.emptyText}>{query ? 'Sin coincidencias.' : 'Escribe para buscar en el catálogo.'}</Text>}
         </View>
         <View style={[styles.cartPanel, width < 760 && styles.mobileCartPanel]}>
           <View style={styles.rowBetween}><Text style={styles.sectionTitle}>Carrito</Text><Pressable disabled={!cart.length} onPress={() => setCart([])}><Text style={styles.clear}>Vaciar</Text></Pressable></View>
           <ScrollView style={styles.cartList} contentContainerStyle={styles.cartContent}>
-            {cart.map((line) => <View key={line.productId} style={styles.cartLine}>
-              <Text style={styles.productName} numberOfLines={1}>{line.name}</Text>
+            {cart.map((line) => <View key={`${line.productId}:${line.unitName ?? 'base'}`} style={styles.cartLine}>
+              <Text style={styles.productName} numberOfLines={1}>{line.name} · {line.unitName ?? 'pieza'}</Text>
               <View style={styles.rowBetween}>
                 <View style={styles.quantityControls}><Pressable accessibilityLabel={`Quitar una unidad de ${line.name}`} onPress={() => changeQuantity(line, -1)} style={styles.quantityButton}><Text style={styles.quantityButtonText}>−</Text></Pressable><Text style={styles.quantity}>{line.quantity}</Text><Pressable accessibilityLabel={`Agregar una unidad de ${line.name}`} onPress={() => changeQuantity(line, 1)} style={styles.quantityButton}><Text style={styles.quantityButtonText}>＋</Text></Pressable></View>
                 <Text style={styles.lineTotal}>{formatCurrencyFromCents(Math.round(line.unitPriceCents * line.quantity))}</Text>
@@ -240,7 +247,7 @@ function ReceiptModal({ receipt, onClose, onCancel, onReturn, canManage }: { rec
   };
   return <Modal visible={Boolean(receipt)} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
     {receipt ? <ScrollView contentContainerStyle={styles.receiptPage}><Text style={styles.eyebrow}>{receipt.status === 'cancelled' ? 'VENTA CANCELADA' : 'DETALLE DE VENTA'}</Text><Text style={styles.modalTitle}>Ticket #{receipt.ticket_number}</Text><Text style={styles.receiptDate}>{new Date(receipt.created_at).toLocaleString('es-MX')}</Text>
-      {receipt.items.map((item) => <View key={item.id} style={styles.receiptLine}><View style={{ flex: 1 }}><Text style={styles.productName}>{item.product_name}</Text><Text style={styles.meta}>{item.quantity} × {formatCurrencyFromCents(item.unit_price_cents)} · Devuelto {item.returned_quantity}</Text></View><Text style={styles.lineTotal}>{formatCurrencyFromCents(item.line_total_cents)}</Text>{canManage && receipt.status === 'completed' && item.quantity > item.returned_quantity ? <TextInput accessibilityLabel={`Cantidad a devolver de ${item.product_name}`} value={returnSelection[item.id] ?? ''} onChangeText={(value) => setReturnSelection((v) => ({ ...v, [item.id]: value }))} placeholder="0" keyboardType="decimal-pad" style={styles.returnInput} /> : null}</View>)}
+      {receipt.items.map((item) => <View key={item.id} style={styles.receiptLine}><View style={{ flex: 1 }}><Text style={styles.productName}>{item.product_name}</Text><Text style={styles.meta}>{item.quantity} {item.unit_name} × {formatCurrencyFromCents(item.unit_price_cents)} · Devuelto {item.returned_quantity}</Text></View><Text style={styles.lineTotal}>{formatCurrencyFromCents(item.line_total_cents)}</Text>{canManage && receipt.status === 'completed' && item.quantity > item.returned_quantity ? <TextInput accessibilityLabel={`Cantidad a devolver de ${item.product_name}`} value={returnSelection[item.id] ?? ''} onChangeText={(value) => setReturnSelection((v) => ({ ...v, [item.id]: value }))} placeholder="0" keyboardType="decimal-pad" style={styles.returnInput} /> : null}</View>)}
       {receipt.discount_cents ? <Text style={styles.meta}>Descuento · {formatCurrencyFromCents(receipt.discount_cents)}</Text> : null}
       {receipt.tax_cents ? <Text style={styles.meta}>Impuestos · {formatCurrencyFromCents(receipt.tax_cents)}</Text> : null}
       <View style={styles.totalRow}><Text style={styles.totalLabel}>Total</Text><Text style={styles.total}>{formatCurrencyFromCents(receipt.total_cents)}</Text></View>
@@ -268,7 +275,7 @@ function DocumentModal({ onClose, onSave, customerName, setCustomerName }: { onC
 function useThemeStyles() {
   const { theme } = useAppTheme();
   const styles = useMemo(() => StyleSheet.create({
-  adjustmentRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }, adjustmentInput: { color: theme.colors.text, backgroundColor: theme.colors.background, borderColor: theme.colors.border, borderWidth: 1, borderRadius: theme.radius.control, minWidth: 90, minHeight: 40, textAlign: 'right', paddingHorizontal: 9 }, documentActions: { flexDirection: 'row', gap: 8, marginVertical: 5 }, documentChip: { backgroundColor: theme.colors.surface, borderRadius: theme.radius.control, borderWidth: 1, borderColor: theme.colors.border, padding: 10, minWidth: 180 }, returnInput: { color: theme.colors.text, backgroundColor: theme.colors.surface, borderColor: theme.colors.border, borderWidth: 1, borderRadius: theme.radius.control, minWidth: 55, minHeight: 44, textAlign: 'center', paddingHorizontal: 5 },
+  adjustmentRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }, adjustmentInput: { color: theme.colors.text, backgroundColor: theme.colors.background, borderColor: theme.colors.border, borderWidth: 1, borderRadius: theme.radius.control, minWidth: 90, minHeight: 40, textAlign: 'right', paddingHorizontal: 9 }, documentActions: { flexDirection: 'row', gap: 8, marginVertical: 5 }, documentChip: { backgroundColor: theme.colors.surface, borderRadius: theme.radius.control, borderWidth: 1, borderColor: theme.colors.border, padding: 10, minWidth: 180 }, returnInput: { color: theme.colors.text, backgroundColor: theme.colors.surface, borderColor: theme.colors.border, borderWidth: 1, borderRadius: theme.radius.control, minWidth: 55, minHeight: 44, textAlign: 'center', paddingHorizontal: 5 }, alternateUnit: { paddingTop: 9, marginTop: 7, borderTopWidth: 1, borderColor: theme.colors.border },
   page: { flex: 1, backgroundColor: theme.colors.background, padding: 16, maxWidth: 1000, width: '100%', alignSelf: 'center' },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }, headerCopy: { flex: 1 }, eyebrow: { color: theme.colors.primaryText, fontSize: 10, letterSpacing: 1.4, fontWeight: '800' }, title: { color: theme.colors.text, fontSize: 26, fontWeight: '800', marginTop: 3 }, shiftBadge: { borderRadius: theme.radius.control, paddingHorizontal: 11, paddingVertical: 8 }, shiftOpen: { backgroundColor: theme.colors.primarySoft }, shiftClosed: { backgroundColor: theme.colors.dangerSoft }, shiftText: { color: theme.colors.primaryText, fontSize: 11, fontWeight: '800' }, notice: { padding: 10, backgroundColor: theme.colors.warningSoft, borderRadius: theme.radius.control, marginBottom: 9 }, noticeText: { color: theme.colors.warning, fontSize: 12, fontWeight: '700' }, searchBox: { minHeight: 46, borderRadius: theme.radius.control, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, marginBottom: 10 }, searchIcon: { fontSize: 22, color: theme.colors.muted, marginRight: 8 }, searchInput: { flex: 1, color: theme.colors.text, fontSize: 14 }, error: { color: theme.colors.danger, fontSize: 12, marginBottom: 7 }, columns: { flex: 1, flexDirection: 'row', gap: 10, minHeight: 260 }, mobileColumns: { flexDirection: 'column' }, catalog: { flex: 1.15, minWidth: 0 }, cartPanel: { flex: 0.85, minWidth: 0, backgroundColor: theme.colors.surface, borderRadius: theme.radius.control, borderWidth: 1, borderColor: theme.colors.border, padding: 12 }, mobileCartPanel: { flex: 0, minHeight: 220, maxHeight: 280 }, sectionTitle: { color: theme.colors.text, fontSize: 15, fontWeight: '800', marginBottom: 9 }, loader: { marginTop: 30 }, productCard: { minHeight: 58, paddingVertical: 10, paddingHorizontal: 4, borderBottomWidth: 1, borderColor: theme.colors.border, marginBottom: 2 }, rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }, productName: { color: theme.colors.text, fontSize: 13, fontWeight: '700', flex: 1 }, price: { color: theme.colors.primaryText, fontSize: 13, fontWeight: '800' }, meta: { color: theme.colors.muted, fontSize: 10, marginTop: 4 }, emptyText: { color: theme.colors.muted, fontSize: 12, marginVertical: 10 }, clear: { color: theme.colors.danger, fontSize: 11, fontWeight: '700' }, cartList: { flex: 1 }, cartContent: { gap: 9 }, cartLine: { borderBottomWidth: 1, borderColor: theme.colors.border, paddingBottom: 8, gap: 7 }, quantityControls: { flexDirection: 'row', alignItems: 'center', gap: 10 }, quantityButton: { backgroundColor: theme.colors.primarySoft, width: 44, height: 44, borderRadius: theme.radius.control, justifyContent: 'center', alignItems: 'center' }, quantityButtonText: { color: theme.colors.primaryText, fontSize: 17, fontWeight: '800' }, quantity: { color: theme.colors.text, fontWeight: '700', minWidth: 18, textAlign: 'center' }, lineTotal: { color: theme.colors.text, fontSize: 12, fontWeight: '800' }, totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 11, borderTopWidth: 1, borderColor: theme.colors.border, marginTop: 8 }, totalLabel: { color: theme.colors.text, fontWeight: '700', fontSize: 14 }, total: { color: theme.colors.primaryText, fontWeight: '900', fontSize: 19 }, primaryButton: { minHeight: 48, alignItems: 'center', justifyContent: 'center', borderRadius: theme.radius.control, backgroundColor: theme.colors.primary, paddingHorizontal: 15 }, primaryButtonText: { color: theme.colors.onPrimary, fontWeight: '800', fontSize: 14 }, disabled: { opacity: 0.45 }, history: { paddingTop: 10, maxHeight: 110 }, salesStrip: { gap: 8 }, saleChip: { backgroundColor: theme.colors.surface, borderRadius: theme.radius.control, borderWidth: 1, borderColor: theme.colors.border, paddingHorizontal: 13, paddingVertical: 9, minWidth: 118 }, saleChipTitle: { color: theme.colors.muted, fontSize: 10 }, saleChipAmount: { color: theme.colors.text, fontWeight: '800', marginTop: 4 }, modalPage: { flex: 1, padding: 22, backgroundColor: theme.colors.background }, modalTitle: { color: theme.colors.text, fontSize: 25, fontWeight: '900', marginTop: 5, marginBottom: 14 }, fieldLabel: { color: theme.colors.text, fontSize: 12, fontWeight: '700', marginTop: 9, marginBottom: 5 }, input: { backgroundColor: theme.colors.surface, minHeight: 47, borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.control, paddingHorizontal: 12, color: theme.colors.text, fontSize: 15 }, modalActions: { flexDirection: 'row', gap: 10, marginTop: 18 }, secondaryButton: { minHeight: 48, flex: 0.7, alignItems: 'center', justifyContent: 'center', borderRadius: theme.radius.control, backgroundColor: theme.colors.background }, secondaryText: { color: theme.colors.text, fontWeight: '700' }, help: { color: theme.colors.muted, fontSize: 11, marginTop: 14, lineHeight: 17 }, receiptPage: { flexGrow: 1, padding: 22, backgroundColor: theme.colors.background }, receiptDate: { color: theme.colors.muted, fontSize: 12, marginBottom: 15 }, receiptLine: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderColor: theme.colors.border }, change: { color: theme.colors.primaryText, fontWeight: '700', marginVertical: 12 },
 }), [theme]);

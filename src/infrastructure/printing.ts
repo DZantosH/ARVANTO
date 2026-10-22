@@ -6,7 +6,7 @@ import { formatCurrencyFromCents } from '@/src/domain/money';
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character] ?? character);
 
 export async function printSaleReceipt(receipt: SaleReceipt) {
-  const lines = receipt.items.map((item) => `<tr><td>${escapeHtml(item.product_name)}<br><small>${item.quantity} × ${formatCurrencyFromCents(item.unit_price_cents)}</small></td><td class="amount">${formatCurrencyFromCents(item.line_total_cents)}</td></tr>`).join('');
+  const lines = receipt.items.map((item) => `<tr><td>${escapeHtml(item.product_name)}<br><small>${item.quantity} ${escapeHtml(item.unit_name)} × ${formatCurrencyFromCents(item.unit_price_cents)}</small></td><td class="amount">${formatCurrencyFromCents(item.line_total_cents)}</td></tr>`).join('');
   const payments = receipt.payments.map((payment) => `<div class="row"><span>${payment.method === 'cash' ? 'Efectivo' : payment.method === 'card' ? 'Tarjeta' : 'Transferencia'}</span><span>${formatCurrencyFromCents(payment.amount_cents)}</span></div>`).join('');
   const html = `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>
     @page { size: 80mm auto; margin: 4mm; } * { box-sizing: border-box; } body { width: 72mm; margin: 0 auto; color: #111; font: 12px monospace; }

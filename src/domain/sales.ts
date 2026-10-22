@@ -6,6 +6,8 @@ export type CartLine = {
   unitCostCents: number;
   stock: number;
   quantity: number;
+  unitName?: string;
+  inventoryFactor?: number;
 };
 
 export type PaymentAmounts = { cashCents: number; cardCents: number; transferCents: number; cashTenderedCents: number };
