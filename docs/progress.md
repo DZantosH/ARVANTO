@@ -1,3 +1,7 @@
+# Migración actual: React Native sin Expo
+
+El 22 de octubre de 2026 se migró el proyecto a Community CLI por solicitud del usuario. Se sustituyeron navegación y módulos nativos, manteniendo identificador Android y SQLite. La APK release incluye su bundle y abre en M2101K6R con Metro apagado. Los apartados siguientes conservan el historial de implementación anterior.
+
 # Plan y progreso
 
 ## Arquitectura y fases

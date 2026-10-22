@@ -1,5 +1,5 @@
-import * as Crypto from 'expo-crypto';
-import type { SQLiteDatabase } from 'expo-sqlite';
+import * as Crypto from '@/src/native/platform';
+import type { SQLiteDatabase } from '@/src/native/database';
 import { getCartTotalCents, getExpectedCashCents, validatePayments, type CartLine, type PaymentAmounts } from '@/src/domain/sales';
 
 export type CashSession = {

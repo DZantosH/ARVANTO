@@ -1,5 +1,5 @@
-import * as Crypto from 'expo-crypto';
-import type { SQLiteDatabase } from 'expo-sqlite';
+import * as Crypto from '@/src/native/platform';
+import type { SQLiteDatabase } from '@/src/native/database';
 
 export type InventoryCount = {
   id: string;
@@ -77,7 +77,7 @@ export async function findCountItemByCode(db: SQLiteDatabase, countId: string, c
 }
 
 export async function completeInventoryCount(db: SQLiteDatabase, countId: string, completedBy = 'Administrador'): Promise<{ changedProducts: number; changedUnits: number }> {
-  let result = { changedProducts: 0, changedUnits: 0 };
+  const result = { changedProducts: 0, changedUnits: 0 };
   await db.withExclusiveTransactionAsync(async (txn) => {
     const count = await txn.getFirstAsync<{ count_number: number; status: string }>('SELECT count_number,status FROM inventory_counts WHERE id=?', countId);
     if (!count || count.status !== 'open') throw new Error('El conteo ya no está abierto.');

@@ -36,6 +36,13 @@ yarn-error.*
 # typescript
 *.tsbuildinfo
 
-# generated native folders
-/ios
-/android
+# Native build artifacts
+android/.gradle/
+android/.kotlin/
+android/build/
+android/app/build/
+android/app/.cxx/
+android/local.properties
+android/app/debug.keystore
+ios/Pods/
+ios/build/

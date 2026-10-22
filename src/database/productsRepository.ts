@@ -1,5 +1,5 @@
-import * as Crypto from 'expo-crypto';
-import type { SQLiteDatabase } from 'expo-sqlite';
+import * as Crypto from '@/src/native/platform';
+import type { SQLiteDatabase } from '@/src/native/database';
 import { recordAuditEvent } from './auditRepository';
 
 export type Product = {

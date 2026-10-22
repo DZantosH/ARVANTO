@@ -1,17 +1,27 @@
 {
-  "extends": "expo/tsconfig.base",
+  "extends": "@react-native/typescript-config",
   "compilerOptions": {
     "strict": true,
+    "types": [
+      "jest"
+    ],
+    "baseUrl": ".",
     "paths": {
       "@/*": [
         "./*"
       ]
-    }
+    },
+    "ignoreDeprecations": "6.0"
   },
   "include": [
-    "**/*.ts",
-    "**/*.tsx",
-    ".expo/types/**/*.ts",
-    "expo-env.d.ts"
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "components/**/*.tsx",
+    "constants/**/*.ts",
+    "App.tsx"
+  ],
+  "exclude": [
+    "node_modules",
+    "android"
   ]
 }

@@ -1,4 +1,4 @@
-import type { SQLiteDatabase } from 'expo-sqlite';
+import type { SQLiteDatabase } from '@/src/native/database';
 
 export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
   await db.execAsync('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
@@ -13,8 +13,8 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
     'SELECT COALESCE(MAX(version), 0) AS version FROM schema_migrations',
   );
   if ((current?.version ?? 0) < 1) {
-    await db.withTransactionAsync(async () => {
-      await db.execAsync(`
+    await db.withExclusiveTransactionAsync(async (txn) => {
+      await txn.execAsync(`
         CREATE TABLE business_settings (
           id INTEGER PRIMARY KEY CHECK (id = 1),
           business_name TEXT NOT NULL DEFAULT 'Mi ferretería',
@@ -36,13 +36,13 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
         );
         CREATE INDEX products_active_name_idx ON products (is_active, name);
       `);
-      await db.runAsync('INSERT INTO schema_migrations (version) VALUES (?)', 1);
+      await txn.runAsync('INSERT INTO schema_migrations (version) VALUES (?)', 1);
     });
   }
 
   if ((current?.version ?? 0) < 2) {
-    await db.withTransactionAsync(async () => {
-      await db.execAsync(`
+    await db.withExclusiveTransactionAsync(async (txn) => {
+      await txn.execAsync(`
         ALTER TABLE products ADD COLUMN description TEXT NOT NULL DEFAULT '';
         ALTER TABLE products ADD COLUMN cost_cents INTEGER NOT NULL DEFAULT 0 CHECK (cost_cents >= 0);
         UPDATE products SET sku = NULL WHERE sku IS NOT NULL AND trim(sku) = '';
@@ -50,13 +50,13 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
           ON products (sku COLLATE NOCASE)
           WHERE sku IS NOT NULL;
       `);
-      await db.runAsync('INSERT INTO schema_migrations (version) VALUES (?)', 2);
+      await txn.runAsync('INSERT INTO schema_migrations (version) VALUES (?)', 2);
     });
   }
 
   if ((current?.version ?? 0) < 3) {
-    await db.withTransactionAsync(async () => {
-      await db.execAsync(`
+    await db.withExclusiveTransactionAsync(async (txn) => {
+      await txn.execAsync(`
         CREATE TABLE cash_sessions (
           id TEXT PRIMARY KEY NOT NULL,
           opened_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
@@ -132,13 +132,13 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
         );
         CREATE INDEX inventory_movements_product_time_idx ON inventory_movements (product_id, created_at DESC);
       `);
-      await db.runAsync('INSERT INTO schema_migrations (version) VALUES (?)', 3);
+      await txn.runAsync('INSERT INTO schema_migrations (version) VALUES (?)', 3);
     });
   }
 
   if ((current?.version ?? 0) < 4) {
-    await db.withTransactionAsync(async () => {
-      await db.execAsync(`
+    await db.withExclusiveTransactionAsync(async (txn) => {
+      await txn.execAsync(`
         DROP INDEX inventory_movements_product_time_idx;
         ALTER TABLE inventory_movements RENAME TO inventory_movements_v3;
         CREATE TABLE inventory_movements (
@@ -218,13 +218,13 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
         );
         CREATE INDEX app_users_active_idx ON app_users (is_active, name COLLATE NOCASE);
       `);
-      await db.runAsync('INSERT INTO schema_migrations (version) VALUES (?)', 4);
+      await txn.runAsync('INSERT INTO schema_migrations (version) VALUES (?)', 4);
     });
   }
 
   if ((current?.version ?? 0) < 5) {
-    await db.withTransactionAsync(async () => {
-      await db.execAsync(`
+    await db.withExclusiveTransactionAsync(async (txn) => {
+      await txn.execAsync(`
         ALTER TABLE sales ADD COLUMN tax_cents INTEGER NOT NULL DEFAULT 0 CHECK (tax_cents >= 0);
         CREATE TABLE sale_returns (
           id TEXT PRIMARY KEY NOT NULL,
@@ -273,25 +273,25 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
         );
         CREATE INDEX sales_document_items_doc_idx ON sales_document_items (document_id);
       `);
-      await db.runAsync('INSERT INTO schema_migrations (version) VALUES (?)', 5);
+      await txn.runAsync('INSERT INTO schema_migrations (version) VALUES (?)', 5);
     });
   }
 
   if ((current?.version ?? 0) < 6) {
-    await db.withTransactionAsync(async () => {
-      await db.execAsync(`
+    await db.withExclusiveTransactionAsync(async (txn) => {
+      await txn.execAsync(`
         ALTER TABLE sale_returns ADD COLUMN cash_refund_cents INTEGER NOT NULL DEFAULT 0 CHECK (cash_refund_cents >= 0);
         ALTER TABLE sale_returns ADD COLUMN card_refund_cents INTEGER NOT NULL DEFAULT 0 CHECK (card_refund_cents >= 0);
         ALTER TABLE sale_returns ADD COLUMN transfer_refund_cents INTEGER NOT NULL DEFAULT 0 CHECK (transfer_refund_cents >= 0);
         ALTER TABLE sale_returns ADD COLUMN credit_refund_cents INTEGER NOT NULL DEFAULT 0 CHECK (credit_refund_cents >= 0);
       `);
-      await db.runAsync('INSERT INTO schema_migrations (version) VALUES (?)', 6);
+      await txn.runAsync('INSERT INTO schema_migrations (version) VALUES (?)', 6);
     });
   }
 
   if ((current?.version ?? 0) < 7) {
-    await db.withTransactionAsync(async () => {
-      await db.execAsync(`
+    await db.withExclusiveTransactionAsync(async (txn) => {
+      await txn.execAsync(`
         ALTER TABLE products ADD COLUMN barcode TEXT;
         ALTER TABLE products ADD COLUMN unit_name TEXT NOT NULL DEFAULT 'pieza';
         ALTER TABLE products ADD COLUMN sale_unit_name TEXT NOT NULL DEFAULT '';
@@ -336,13 +336,13 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
         CREATE INDEX inventory_count_items_count_idx ON inventory_count_items (count_id, product_name COLLATE NOCASE);
         CREATE INDEX inventory_count_items_barcode_idx ON inventory_count_items (count_id, barcode COLLATE NOCASE);
       `);
-      await db.runAsync('INSERT INTO schema_migrations (version) VALUES (?)', 7);
+      await txn.runAsync('INSERT INTO schema_migrations (version) VALUES (?)', 7);
     });
   }
 
   if ((current?.version ?? 0) < 8) {
-    await db.withTransactionAsync(async () => {
-      await db.execAsync(`
+    await db.withExclusiveTransactionAsync(async (txn) => {
+      await txn.execAsync(`
         ALTER TABLE purchases ADD COLUMN status TEXT NOT NULL DEFAULT 'received' CHECK (status IN ('pending', 'partial', 'received'));
         ALTER TABLE purchases ADD COLUMN is_legacy INTEGER NOT NULL DEFAULT 0 CHECK (is_legacy IN (0, 1));
         ALTER TABLE purchase_items ADD COLUMN received_quantity REAL NOT NULL DEFAULT 0 CHECK (received_quantity >= 0);
@@ -386,13 +386,13 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
         CREATE INDEX supplier_payments_purchase_time_idx ON supplier_payments (purchase_id, created_at DESC);
         CREATE INDEX supplier_payments_supplier_time_idx ON supplier_payments (supplier_id, created_at DESC);
       `);
-      await db.runAsync('INSERT INTO schema_migrations (version) VALUES (?)', 8);
+      await txn.runAsync('INSERT INTO schema_migrations (version) VALUES (?)', 8);
     });
   }
 
   if ((current?.version ?? 0) < 9) {
-    await db.withTransactionAsync(async () => {
-      await db.execAsync(`
+    await db.withExclusiveTransactionAsync(async (txn) => {
+      await txn.execAsync(`
         ALTER TABLE sales ADD COLUMN cancelled_by TEXT;
         ALTER TABLE sales ADD COLUMN cancel_reason TEXT NOT NULL DEFAULT '';
         ALTER TABLE sales_documents ADD COLUMN cancelled_by TEXT;
@@ -492,7 +492,7 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
             'Documento #' || NEW.document_number || ' · ' || COALESCE(NEW.cancel_reason, 'Sin motivo'));
         END;
       `);
-      await db.runAsync('INSERT INTO schema_migrations (version) VALUES (?)', 9);
+      await txn.runAsync('INSERT INTO schema_migrations (version) VALUES (?)', 9);
     });
   }
 }

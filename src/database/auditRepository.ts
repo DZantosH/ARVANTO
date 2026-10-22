@@ -1,5 +1,5 @@
-import * as Crypto from 'expo-crypto';
-import type { SQLiteDatabase } from 'expo-sqlite';
+import * as Crypto from '@/src/native/platform';
+import type { SQLiteDatabase } from '@/src/native/database';
 
 export type AuditActor = { id?: string | null; name?: string };
 export type AuditEventInput = { actor?: AuditActor | null; action: string; entityType: string; entityId?: string; summary?: string };

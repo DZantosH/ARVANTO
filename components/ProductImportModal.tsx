@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import * as DocumentPicker from 'expo-document-picker';
-import { File } from 'expo-file-system';
+import * as DocumentPicker from '@/src/native/platform';
+import { File } from '@/src/native/platform';
 import * as XLSX from 'xlsx';
-import { extractText, getPageCount, isAvailable as isPdfExtractorAvailable } from 'expo-pdf-text-extract';
-import { useSQLiteContext } from 'expo-sqlite';
+import { extractText, getPageCount, isAvailable as isPdfExtractorAvailable } from '@/src/native/platform';
+import { useSQLiteContext } from '@/src/native/database';
 import { useAppTheme } from '@/src/ui/ThemeProvider';
 import { useAuth } from '@/src/ui/AuthProvider';
 import { importProducts, type ProductInput } from '@/src/database/productsRepository';
@@ -65,29 +65,13 @@ export function ProductImportModal({ visible, onClose, onImported }: Props) {
         if (!sheetName) throw new Error('El libro no contiene hojas.');
         parsed = parseProductMatrix(XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: '', raw: false }) as unknown[][]);
       } else if (extension === 'pdf') {
-        if (!isPdfExtractorAvailable()) throw new Error('Para leer PDF instala y abre la app en una development build (no Expo Go).');
+        if (!isPdfExtractorAvailable()) throw new Error('El lector PDF no está disponible.');
         const pdfPageCount = await getPageCount(asset.uri);
         if (pdfPageCount > 20) throw new Error('Este PDF tiene más de 20 páginas. Divide el catálogo para importarlo.');
         const pdfText = await extractText(asset.uri);
-        try {
-          parsed = parseProductText(pdfText);
-        } catch {
-          const { PdfPageImage } = await import('@dariyd/react-native-pdf-page-image');
-          await PdfPageImage.open(asset.uri);
-          try {
-            const recognizedPages: string[] = [];
-            for (let page = 0; page < pdfPageCount; page += 1) {
-              const image = await PdfPageImage.generate(asset.uri, page, 1, { maxDimension: 1800 });
-              const { recognizeText } = await import('expo-ocr-kit');
-              recognizedPages.push((await recognizeText(image.uri)).text);
-            }
-            parsed = parseProductText(recognizedPages.join('\n'));
-          } finally {
-            await PdfPageImage.close(asset.uri);
-          }
-        }
+        parsed = parseProductText(pdfText);
       } else {
-        const { recognizeText } = await import('expo-ocr-kit');
+        const { recognizeText } = await import('@/src/native/platform');
         const result = await recognizeText(asset.uri);
         parsed = parseProductText(result.text);
       }
@@ -100,7 +84,7 @@ export function ProductImportModal({ visible, onClose, onImported }: Props) {
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : '';
       setError(message.includes('Native module') || message.includes('development build')
-        ? 'El reconocimiento de este archivo requiere una development build de la app.'
+        ? 'No se pudo iniciar el reconocimiento de texto.'
         : message || 'No se pudo leer el archivo. Revisa el formato e intenta de nuevo.');
       setRows([]);
       setExistingSkus(new Set());
@@ -166,7 +150,7 @@ export function ProductImportModal({ visible, onClose, onImported }: Props) {
           <Pressable accessibilityRole="button" accessibilityLabel="Cerrar" onPress={close} style={styles.closeButton}><Text style={styles.closeText}>×</Text></Pressable>
         </View>
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-          <Text style={styles.description}>Carga Excel, PDF o una foto del catálogo (PNG/JPG). Revisa y corrige cada fila; el archivo se procesa en este dispositivo. PDF e imágenes requieren una development build para reconocer el texto.</Text>
+          <Text style={styles.description}>Carga Excel, PDF o una foto del catálogo (PNG/JPG). Revisa y corrige cada fila; el archivo se procesa en este dispositivo. El reconocimiento de texto funciona localmente.</Text>
           <Pressable accessibilityRole="button" disabled={busy} onPress={() => void pickFile()} style={styles.pickButton}>
             <Text style={styles.pickTitle}>{busy ? 'Leyendo archivo…' : fileName ? 'Elegir otro archivo' : 'Seleccionar archivo'}</Text>
             <Text style={styles.pickSubtitle}>{fileName || 'XLSX, XLS, PDF, PNG o JPG'}</Text>

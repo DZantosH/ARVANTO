@@ -1,13 +1,13 @@
-import * as Crypto from 'expo-crypto';
-import { File, Paths } from 'expo-file-system';
-import { defaultDatabaseDirectory, openDatabaseAsync, backupDatabaseAsync, deleteDatabaseAsync, type SQLiteDatabase } from 'expo-sqlite';
-import * as SecureStore from 'expo-secure-store';
+import * as Crypto from '@/src/native/platform';
+import { File, Paths } from '@/src/native/platform';
+import { defaultDatabaseDirectory, openDatabaseAsync, backupDatabaseAsync, deleteDatabaseAsync, type SQLiteDatabase } from '@/src/native/database';
+import * as SecureStore from '@/src/native/platform';
 import { migrateDatabase } from '@/src/database/migrations';
 
 const KEY_ITEM = 'ferrepos.backup.key.v1';
 const BACKUP_INFO_ITEM = 'ferrepos.backup.last.v1';
 const LAST_RESTORE_ITEM = 'ferrepos.backup.restore.v1';
-const PREFIX = new TextEncoder().encode('ARVANTO_BACKUP_V1\n');
+const PREFIX = Uint8Array.from('ARVANTO_BACKUP_V1\n', (character) => character.charCodeAt(0));
 
 export type BackupInfo = { createdAt: string; sizeBytes: number; fileName: string };
 
@@ -18,7 +18,7 @@ export async function getBackupKey(): Promise<string | null> {
 export async function createEncryptedBackup(db: SQLiteDatabase): Promise<{ uri: string; info: BackupInfo; key: string }> {
   const storedKey = await getBackupKey();
   const key = storedKey ?? bytesToHex(await Crypto.getRandomBytesAsync(32));
-  if (!storedKey) await SecureStore.setItemAsync(KEY_ITEM, key, { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY });
+  if (!storedKey) await SecureStore.setItemAsync(KEY_ITEM, key);
   const keyObject = await Crypto.AESEncryptionKey.import(key, 'hex');
   const dbName = `ferrepos-export-${Date.now()}.db`;
   const copy = await openDatabaseAsync(dbName);
@@ -76,7 +76,7 @@ export async function restoreEncryptedBackup(db: SQLiteDatabase, file: File, sup
     const integrity = await source.getFirstAsync<{ integrity_check: string }>('PRAGMA integrity_check');
     if (integrity?.integrity_check !== 'ok') throw new Error('La base de datos del respaldo está dañada.');
     const version = await source.getFirstAsync<{ version: number }>('SELECT COALESCE(MAX(version), 0) AS version FROM schema_migrations');
-    if (!version || version.version < 1 || version.version > 3) throw new Error('El respaldo pertenece a una versión incompatible de FerrePOS.');
+    if (!version || version.version < 1 || version.version > 9) throw new Error('El respaldo pertenece a una versión incompatible de FerrePOS.');
     await migrateDatabase(source);
 
     const safetyCopyName = 'ferrepos-pre-restore.db';

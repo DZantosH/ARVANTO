@@ -1,0 +1,42 @@
+apply plugin: "com.android.application"
+apply plugin: "org.jetbrains.kotlin.android"
+apply plugin: "com.facebook.react"
+react { autolinkLibrariesWithApp() }
+android {
+    namespace 'mx.arvanto.ferrepos'
+    ndkVersion rootProject.ext.ndkVersion
+    buildToolsVersion rootProject.ext.buildToolsVersion
+    compileSdk rootProject.ext.compileSdkVersion
+    defaultConfig {
+        applicationId 'mx.arvanto.ferrepos'
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode 2
+        versionName "1.1.0"
+        testInstrumentationRunner "mx.arvanto.ferrepos.ArvantoSmokeInstrumentation"
+    }
+    testBuildType "smoke"
+    signingConfigs {
+        debug { storeFile file('debug.keystore'); storePassword 'android'; keyAlias 'androiddebugkey'; keyPassword 'android' }
+    }
+    buildTypes {
+        debug { signingConfig signingConfigs.debug }
+        release {
+            // Local device builds use the existing development signature to preserve data.
+            signingConfig signingConfigs.debug
+            minifyEnabled true
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
+        }
+        smoke {
+            initWith release
+            minifyEnabled false
+            matchingFallbacks = ['release']
+        }
+    }
+}
+dependencies {
+    implementation("com.facebook.react:react-android")
+    implementation("com.facebook.react:hermes-android")
+    implementation("com.google.mlkit:text-recognition:16.0.1")
+    implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
+}

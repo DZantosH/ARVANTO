@@ -1,3 +1,36 @@
+# Verificación de React Native sin Expo
+
+Migración del 22 de octubre de 2026. La documentación histórica al final corresponde al entorno anterior.
+
+- Eliminados los paquetes Expo, su runtime, Router y configuración de Metro/Babel/Jest.
+- React Navigation registra explícitamente las pantallas y omite rutas sin permiso para el perfil actual.
+- Nuevas pruebas de aislamiento de transacciones, rollback y parámetros SQL maliciosos en el adaptador nativo.
+- Esquema creado desde cero con las nueve migraciones: `integrity_check=ok`, 15 triggers.
+- Antes de actualizar el teléfono M2101K6R: esquema 9, `integrity_check=ok`, cero productos, ventas y usuarios.
+- Se conservan el identificador Android, SQLite y las claves de la instalación previa.
+
+- `npm run lint` y `npm run typecheck`: pasaron.
+- `npm test`: cuatro suites y 21 pruebas pasaron.
+- `app:assembleRelease`: compilación exitosa e instalación mediante `adb install -r`.
+- Apertura de la APK release comprobada con Metro apagado: pantalla «Configura tu negocio».
+- Siete comprobaciones nativas pasaron en M2101K6R: SQL tipado y triggers, rollback, backup/restauración WAL e integridad, UUID/hash de PIN, AES-GCM y rechazo de clave inválida, Keystore/migración de claves anteriores y generación PDF con OCR local.
+- Pruebas instrumentadas usan una variante `smoke` sin minificación y bases de datos independientes; no crean usuarios, productos ni ventas en la base del negocio.
+
+Para repetir las pruebas nativas:
+
+```bash
+cd android
+./gradlew app:assembleSmoke app:assembleSmokeAndroidTest -PreactNativeArchitectures=arm64-v8a
+adb install -r app/build/outputs/apk/smoke/app-smoke.apk
+adb install -r app/build/outputs/apk/androidTest/smoke/app-smoke-androidTest.apk
+adb shell am instrument -w mx.arvanto.ferrepos.test/mx.arvanto.ferrepos.ArvantoSmokeInstrumentation
+# Volver a instalar la variante release al terminar.
+```
+
+La lectura de códigos con cámara, el selector de documentos, el menú de compartir y la impresión sobre papel requieren prueba manual con el hardware y proveedores de la tienda. No se completó una venta real ni se eligió un PIN en nombre del usuario.
+
+## Historial anterior a la migración
+
 # Verificación
 
 ## Entorno

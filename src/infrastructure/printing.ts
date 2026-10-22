@@ -1,4 +1,4 @@
-import * as Print from 'expo-print';
+import * as Print from '@/src/native/platform';
 import type { SaleReceipt, SalesDocument } from '@/src/database/posRepository';
 import type { CartLine } from '@/src/domain/sales';
 import { formatCurrencyFromCents } from '@/src/domain/money';

@@ -1,51 +1,46 @@
-# FerrePOS
+# ARVANTO
 
-Punto de venta local para ferreterías y tlapalerías en México. La aplicación guarda los datos en SQLite en el dispositivo y puede operar sin conexión.
+Punto de venta Android para ferreterías, desarrollado con **React Native 0.88 y TypeScript, sin Expo**. La APK release incluye el código JavaScript y funciona sin Metro ni conexión con una computadora.
 
-## Requisitos y ejecución
+## Desarrollo
 
-- Node.js compatible con Expo SDK 58 (se desarrolló con Node 26.12.0).
-- Android Studio/Android SDK o un dispositivo Android. Los flujos con módulos nativos se validan en development build.
+Requiere Node.js compatible con React Native 0.88, JDK 17 o superior, Android SDK 37 y un teléfono con depuración USB o un emulador. Configura `ANDROID_HOME` con la ubicación del SDK y acepta sus licencias.
 
 ```bash
-npm install
-npx expo start
+npm ci
+npm start
+# En otra terminal, con el teléfono conectado:
+npm run android
 ```
 
-Para probar en Android con emulador, inicia el emulador y ejecuta `npm run android`.
+La variante debug necesita Metro y `adb reverse tcp:8081 tcp:8081`. Para instalar una variante que abra por sí sola:
 
-## Estado
+```bash
+npm run android:release
+```
 
-- Base local y dashboard conectado a SQLite.
-- Productos: alta, búsqueda, edición, filtro y desactivación lógica.
-- Catálogo: importación de Excel (XLS/XLSX), PDF (incluidos escaneados) y fotos PNG/JPG, con vista previa, edición, validación y detección de claves duplicadas antes de guardar.
-- Venta: carrito, pagos en efectivo/tarjeta/transferencia, cambio, ticket y descuento de stock atómico.
-- Caja: apertura, entradas/retiros, corte y diferencia por turno.
-- Respaldos: exportación cifrada y restauración validada.
-- Interfaz: paleta naranja y grafito, listas planas, controles rectangulares y contenido con ancho máximo en pantallas grandes.
+El APK se genera en `android/app/build/outputs/apk/release/app-release.apk`. La firma actual es de desarrollo para permitir actualizar el teléfono de trabajo; configura una clave propia antes de distribuir públicamente. No desinstales la app para actualizar: instala encima para conservar los datos.
 
-No se carga información de demostración. La primera venta requiere productos registrados y un turno de caja abierto.
+## Organización
 
-La lectura de PDF, la conversión local de páginas PDF y el OCR de imágenes se ejecutan en el dispositivo y requieren abrir la app en una development build (`npm run android` o una build EAS); no están disponibles en Expo Go. La importación de hojas Excel funciona también en Expo Go. Los PDF se limitan a 20 páginas por importación.
+- `App.tsx`: navegación con React Navigation y pantallas disponibles según el perfil.
+- `src/screens/`: productos, ventas, caja, respaldos, inventario, clientes, compras, reportes y usuarios.
+- `src/database/`: repositorios y nueve migraciones SQLite.
+- `src/native/`: acceso TypeScript a los servicios Android.
+- `android/`: proyecto nativo mantenido directamente, sin generación de Expo.
 
-El respaldo usa una clave aleatoria de 256 bits almacenada en SecureStore. Muéstrala en la pantalla Respaldos y guárdala aparte del archivo para recuperar copias en otro dispositivo. Si se pierde, el respaldo cifrado no se puede descifrar.
+SQLite se conserva en `files/SQLite/ferrepos.db`, con el mismo identificador de aplicación `mx.arvanto.ferrepos`. Las claves anteriores se recuperan y se vuelven a cifrar con Android Keystore durante la actualización.
+
+Los respaldos usan AES-256-GCM. La impresión utiliza el servicio de impresión del sistema; PDF e imágenes se reconocen localmente con ML Kit. El escáner utiliza Google Play Services y puede necesitar descargar su componente la primera vez; también se admite introducir el código manualmente. La base SQLite local sigue sin cifrado.
+
+Esta versión incluye el proyecto nativo de Android. Una versión iOS requiere implementar los mismos servicios nativos en esa plataforma.
 
 ## Comprobaciones
 
 ```bash
-npx expo lint
-npx tsc --noEmit
+npm run lint
+npm run typecheck
 npm test
-npx expo-doctor
 ```
 
-Consulta [docs/testing.md](docs/testing.md) para los resultados y limitaciones del entorno.
-
-## Documentación
-
-- [Arquitectura](docs/architecture.md)
-- [Modelo de datos inicial](docs/data-model.md)
-- [Decisiones técnicas](docs/decisions.md)
-- [Plan y progreso](docs/progress.md)
-
-La aplicación no necesita internet para vender, operar caja o consultar la base local. Quedan pendientes clientes/crédito, impuestos y descuentos, cancelaciones/devoluciones, impresión física, escáner, sincronización y licencia.
+Consulta [docs/testing.md](docs/testing.md) para resultados y límites de las pruebas.

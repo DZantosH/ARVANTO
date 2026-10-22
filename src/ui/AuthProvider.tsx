@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { useSQLiteContext } from 'expo-sqlite';
+import { useSQLiteContext } from '@/src/native/database';
 import { authenticateUser, createUser, type AppUser, type UserRole } from '@/src/database/businessRepository';
 import { recordAuditEvent } from '@/src/database/auditRepository';
 

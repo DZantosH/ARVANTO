@@ -1,25 +1,15 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { ActivityIndicator, Platform, View, useColorScheme } from 'react-native';
-import * as SecureStore from 'expo-secure-store';
-import { StatusBar } from 'expo-status-bar';
+import { ActivityIndicator, View, useColorScheme } from 'react-native';
+import * as SecureStore from '@/src/native/platform';
+import { StatusBar } from 'react-native';
 import { darkTheme, lightTheme, type AppTheme, type ThemeMode } from '@/constants/Theme';
 
 const THEME_KEY = 'ferrepos.theme-mode';
 type ThemeContextValue = { mode: ThemeMode; theme: AppTheme; setMode: (mode: ThemeMode) => void };
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
-async function readThemeMode() {
-  if (Platform.OS === 'web') return typeof localStorage === 'undefined' ? null : localStorage.getItem(THEME_KEY);
-  return SecureStore.getItemAsync(THEME_KEY);
-}
-
-async function saveThemeMode(mode: ThemeMode) {
-  if (Platform.OS === 'web') {
-    if (typeof localStorage !== 'undefined') localStorage.setItem(THEME_KEY, mode);
-    return;
-  }
-  await SecureStore.setItemAsync(THEME_KEY, mode);
-}
+async function readThemeMode() { return SecureStore.getItemAsync(THEME_KEY); }
+async function saveThemeMode(mode: ThemeMode) { await SecureStore.setItemAsync(THEME_KEY, mode); }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const systemScheme = useColorScheme();
@@ -45,7 +35,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   if (!ready) return <View style={{ flex: 1, justifyContent: 'center', backgroundColor: lightTheme.colors.background }}><ActivityIndicator color={lightTheme.colors.primary} /></View>;
 
   return <ThemeContext.Provider value={value}>
-    <StatusBar style={isDark ? 'light' : 'dark'} />
+    <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
     {children}
   </ThemeContext.Provider>;
 }

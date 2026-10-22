@@ -1,4 +1,4 @@
-import type { SQLiteDatabase } from 'expo-sqlite';
+import type { SQLiteDatabase } from '@/src/native/database';
 
 export type DashboardSummary = {
   salesCents: number;
