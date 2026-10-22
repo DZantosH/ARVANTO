@@ -1,6 +1,6 @@
 # Contrato para la futura web de ARVANTO
 
-Estado: pendiente de implementar y desplegar. La aplicación no registra cuentas ni contiene credenciales provisionales. La URL prevista es `https://arvanto.asyncz.tech`; la base del cliente móvil está en `src/config/auth.ts` como `https://arvanto.asyncz.tech/api`.
+Estado: pendiente de implementar y desplegar. La aplicación no registra cuentas desde su interfaz ni contiene credenciales predeterminadas. El usuario autorizó aprovisionar privadamente un administrador en su teléfono mientras se implementa la web; esa excepción usa verificación nativa y no llama a esta API. La URL prevista es `https://arvanto.asyncz.tech`; la base del cliente móvil está en `src/config/auth.ts` como `https://arvanto.asyncz.tech/api`.
 
 ## Credenciales y sesión
 
@@ -50,3 +50,9 @@ El formulario de registro, verificación de identidad, alta de negocio, invitaci
 ## Pruebas
 
 `src/auth/*.test.ts` valida el contrato y la persistencia con servicios simulados. Para probar todo el flujo de verdad se necesita desplegar esta API, registrar una cuenta desde la web, iniciar sesión, reiniciar la app y cerrar la jornada desde un segundo dispositivo.
+
+## Cuenta habilitada solo en un dispositivo
+
+La credencial autorizada se instala mediante herramientas firmadas de aprovisionamiento, sin formulario de registro en la app. El verificador usa sal aleatoria, PBKDF2-HMAC-SHA256 con 600 000 iteraciones y almacenamiento cifrado por Android Keystore. Los intentos fallidos y el bloqueo de un minuto tras cinco errores persisten entre reinicios.
+
+Las sesiones locales se distinguen mediante el emisor `arvanto:device`; su token se verifica y revoca dentro del módulo nativo. Nunca se envía un token local al servidor. La cuenta conserva el cierre manual y por jornada. Instalar la misma APK en otro teléfono no crea esa cuenta ni le da acceso. El alta en la web y la vinculación del negocio local al identificador del servidor se harán cuando exista el servicio.

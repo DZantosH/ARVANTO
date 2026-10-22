@@ -1,5 +1,6 @@
 import { NativeModules } from 'react-native';
 import { fromByteArray, toByteArray } from 'base64-js';
+import type { WebSession } from '@/src/auth/api';
 
 type Row = Record<string, string | number | null>;
 type Result = { rows: Row[]; changes: number; lastInsertRowId: number };
@@ -11,6 +12,9 @@ type NativePlatform = {
   aes(data: string, key: string, decrypt: boolean): Promise<string>;
   secureGet(key: string): Promise<string | null>;
   secureSet(key: string, value: string): Promise<void>;
+  deviceSignIn(username: string, password: string): Promise<WebSession | null>;
+  deviceSessionValid(token: string): Promise<boolean>;
+  deviceSignOut(token: string): Promise<void>;
   readFile(uri: string): Promise<string>;
   writeFile(uri: string, data: string): Promise<void>;
   pickFile(types: string[]): Promise<{ canceled: boolean; assets: { uri: string; name: string; size: number }[] }>;

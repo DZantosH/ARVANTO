@@ -29,3 +29,7 @@ El acceso usa usuario y contraseña contra la futura API de la web. La contrase�
 Se comprueba la sesión al regresar y cada 30 segundos mientras la app está activa. Un error de red conserva una sesión ya autenticada y no vencida; una revocación o jornada cerrada la elimina. Los datos locales siguen sin cifrado SQLite y no hay sincronización de productos o ventas. El backend de cuentas y registro aún está pendiente.
 
 Android es la plataforma nativa implementada. iOS requiere implementar los servicios equivalentes. La impresión física depende del servicio y la impresora instalados; Bluetooth ESC/POS directo no está incluido.
+
+## Aprovisionamiento privado de un dispositivo
+
+Por autorización expresa del usuario se admite un administrador instalado con herramientas externas a la interfaz mientras se implementa la web. La APK no contiene cuentas predeterminadas. El módulo nativo verifica PBKDF2-HMAC-SHA256 contra un registro cifrado con Android Keystore, emite un token local revocable y aplica un bloqueo persistente tras cinco fallos. La sesión usa el emisor `arvanto:device`, conserva el acceso al reabrir y se invalida al cerrar sesión o finalizar la jornada. El alta web y la vinculación del negocio local al identificador del servidor requieren una migración cuando el servicio esté disponible.

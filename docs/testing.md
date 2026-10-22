@@ -1,3 +1,12 @@
+# Administrador habilitado en el dispositivo — 22 de octubre de 2026
+
+- Cuenta de administrador solicitada por el usuario, aprovisionada privadamente en el teléfono conectado. Ningún nombre de acceso, contraseña o verificador real se incorpora al repositorio o APK.
+- Verificador PBKDF2-HMAC-SHA256 con sal aleatoria y 600 000 iteraciones, protegido por Android Keystore. Cinco intentos fallidos bloquean un minuto y el bloqueo persiste entre reinicios.
+- 44 pruebas de JavaScript/TypeScript, lint y tipado: pasaron.
+- Ocho comprobaciones instrumentadas pasaron, incluidas verificación de contraseña, rechazo de clave incorrecta, persistencia de token, revocación y bloqueo entre instancias nativas; usan una cuenta de prueba aislada.
+- APK release 1.2.1 instalada, acceso con la credencial autorizada confirmado en el dashboard. Tras forzar cierre y abrir de nuevo, la sesión se restauró.
+- La API web continúa pendiente. El emisor de la sesión del dispositivo se distingue del emisor web y sus tokens no se envían al servidor.
+
 # Acceso por usuario y contraseña — 22 de octubre de 2026
 
 - Login sin registro local ni PIN. Endpoint configurado para la futura API `https://arvanto.asyncz.tech/api`.

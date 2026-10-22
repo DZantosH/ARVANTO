@@ -25,7 +25,7 @@ El APK se genera en `android/app/build/outputs/apk/release/app-release.apk`. La 
 
 La app solo muestra **Usuario**, **Contraseña** e **Iniciar sesión**. El registro, recuperación de contraseña y permisos pertenecen a la futura web `https://arvanto.asyncz.tech`.
 
-El servidor todavía no está implementado. La app está preparada para su API en `https://arvanto.asyncz.tech/api`; no incluye cuentas de prueba ni autentica con PIN local. Hasta desplegar ese servicio no es posible iniciar sesión con una cuenta real. El contrato requerido está en [docs/auth-api.md](docs/auth-api.md).
+El servidor todavía no está implementado. La app está preparada para su API en `https://arvanto.asyncz.tech/api`; no incluye cuentas de prueba ni autentica con PIN local. Las cuentas web estarán disponibles cuando se despliegue ese servicio. Por solicitud del usuario se admite una cuenta de administrador aprovisionada de forma privada en su teléfono para operar mientras tanto. Esa cuenta no se incluye en el código, la APK ni los respaldos; se verifica localmente con PBKDF2-HMAC-SHA256 y Android Keystore. El contrato requerido está en [docs/auth-api.md](docs/auth-api.md).
 
 Una sesión autenticada se guarda cifrada con Android Keystore y se recupera al reabrir la app. No se guarda la contraseña ni se cierra la sesión por dejar la app en segundo plano. El cierre manual o la opción **Finalizar jornada y cerrar sesión** en el corte de caja invalidan el acceso guardado. Un cambio de turno puede conservar la sesión desactivando esa opción. Sin internet se conserva una sesión previamente validada hasta su vencimiento; un cierre remoto se detecta al recuperar conectividad.
 

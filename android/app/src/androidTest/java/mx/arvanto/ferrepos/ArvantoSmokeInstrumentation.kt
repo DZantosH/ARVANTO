@@ -11,7 +11,8 @@ import java.util.concurrent.TimeUnit
 
 /** Runs against isolated databases and preferences; never modifies business records. */
 class ArvantoSmokeInstrumentation : Instrumentation() {
-  override fun onCreate(arguments: Bundle?) { super.onCreate(arguments); start() }
+  private var options: Bundle? = null
+  override fun onCreate(arguments: Bundle?) { super.onCreate(arguments); options = arguments; start() }
   private fun awaitResult(call: (Promise) -> Unit): Any? {
     val latch = CountDownLatch(1); var result: Any? = null; var error: String? = null
     val promise = Proxy.newProxyInstance(Promise::class.java.classLoader, arrayOf(Promise::class.java)) { _, method, arguments ->
@@ -31,6 +32,21 @@ class ArvantoSmokeInstrumentation : Instrumentation() {
       while (host.currentReactContext == null && System.currentTimeMillis() < deadline) Thread.sleep(50)
       val context = host.currentReactContext as? ReactApplicationContext ?: error("React Native did not initialize")
       val module = ArvantoPlatform(context)
+      val provision = options?.getString("provisionAccount")
+      if (provision != null) {
+        val record = org.json.JSONObject(String(android.util.Base64.decode(provision, android.util.Base64.NO_WRAP)))
+        require(record.getString("username").isNotBlank() && record.getString("name").isNotBlank())
+        require(record.getString("role") in listOf("admin", "manager", "cashier"))
+        require(record.getInt("iterations") in 600000..2000000)
+        require(android.util.Base64.decode(record.getString("salt"), android.util.Base64.NO_WRAP).size >= 16)
+        require(android.util.Base64.decode(record.getString("hash"), android.util.Base64.NO_WRAP).size == 32)
+        require(!record.has("password") && !record.has("token"))
+        check(awaitResult { module.secureGet("arvanto.device-account.v1", it) } == null) { "This device already has a provisioned account" }
+        awaitResult { module.secureSet("arvanto.device-account.v1", record.toString(), it) }
+        output.putString("stream", "\nDevice account provisioned securely.\n")
+        finish(Activity.RESULT_OK, output)
+        return
+      }
       val name = "arvanto-instrumentation.db"
       fun sql(statement: String, script: Boolean = false, vararg parameters: Any?): ReadableMap = awaitResult { module.sql(name, statement, Arguments.fromList(parameters.toList()), script, it) } as ReadableMap
       awaitResult { module.openDatabase(name, it) }
@@ -57,6 +73,29 @@ class ArvantoSmokeInstrumentation : Instrumentation() {
         check(Regex("[0-9a-f-]{36}").matches(module.randomUUID()))
         check(awaitResult { module.digest("hello", it) } == "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824")
         checks.add("Secure UUID and existing PIN hash compatibility")
+        val accountKey = "instrumentation.device-account"
+        val authModule = ArvantoPlatform(context, accountKey)
+        try {
+          check(awaitResult { authModule.deviceSignIn("unknown", "test-only-password", it) } == null)
+          val salt = ByteArray(16).also { java.security.SecureRandom().nextBytes(it) }
+          val spec = javax.crypto.spec.PBEKeySpec("test-only-password".toCharArray(), salt, 600000, 256)
+          val hash = try { javax.crypto.SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded } finally { spec.clearPassword() }
+          val fixture = org.json.JSONObject().put("username", "test-only-user").put("name", "Native test").put("id", "test-user").put("businessId", "test-store").put("role", "admin").put("iterations", 600000).put("salt", android.util.Base64.encodeToString(salt, android.util.Base64.NO_WRAP)).put("hash", android.util.Base64.encodeToString(hash, android.util.Base64.NO_WRAP))
+          awaitResult { authModule.secureSet(accountKey, fixture.toString(), it) }
+          var rejectedPassword = false
+          try { awaitResult { authModule.deviceSignIn("test-only-user", "wrong-password", it) } } catch (_: Exception) { rejectedPassword = true }
+          check(rejectedPassword)
+          val login = awaitResult { authModule.deviceSignIn("test-only-user", "test-only-password", it) } as ReadableMap
+          val deviceToken = login.getString("token")!!
+          check(awaitResult { ArvantoPlatform(context, accountKey).deviceSessionValid(deviceToken, it) } == true)
+          awaitResult { authModule.deviceSignOut(deviceToken, it) }
+          check(awaitResult { authModule.deviceSessionValid(deviceToken, it) } == false)
+          repeat(5) { try { awaitResult { authModule.deviceSignIn("test-only-user", "wrong-password", it) } } catch (_: Exception) { } }
+          var locked = false
+          try { awaitResult { ArvantoPlatform(context, accountKey).deviceSignIn("test-only-user", "test-only-password", it) } } catch (_: Exception) { locked = true }
+          check(locked)
+          checks.add("PBKDF2 password verification, persistent session, logout and brute-force lockout")
+        } finally { targetContext.getSharedPreferences("arvanto.secure", 0).edit().remove(accountKey).commit() }
         val key = "01".repeat(32); val plain = "QVJWQU5UTw=="
         val encrypted = awaitResult { module.aes(plain, key, false, it) } as String
         check(awaitResult { module.aes(encrypted, key, true, it) } == plain)

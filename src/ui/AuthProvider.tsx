@@ -4,8 +4,8 @@ import { useSQLiteContext } from '@/src/native/database';
 import type { AppUser } from '@/src/database/businessRepository';
 import { recordAuditEvent } from '@/src/database/auditRepository';
 import { AuthError, authRequest, signIn, validateSession } from '@/src/auth/api';
-import { invalidateLocalSession, loadSession, saveSession, synchronizeAccount, type StoredSession } from '@/src/auth/session';
-import { getItemAsync, setItemAsync } from '@/src/native/platform';
+import { invalidateLocalSession, loadSession, saveSession, synchronizeAccount, type StoredSession, DEVICE_ISSUER } from '@/src/auth/session';
+import { getItemAsync, setItemAsync, native } from '@/src/native/platform';
 import { AUTH_API_URL } from '@/src/config/auth';
 
 type AuthValue = { user: AppUser | null; ready: boolean; login: (username: string, password: string) => Promise<void>; logout: (reason?: 'manual' | 'business_closed') => Promise<void>; refreshSession: () => Promise<void> };
@@ -42,7 +42,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const effectiveReason = ending?.last_end_reason === 'business_closed' ? 'business_closed' : reason;
     // Persist revocation before clearing credentials, so offline closures can be retried.
     try {
-      if (previous) await setItemAsync(PENDING_REVOCATION, JSON.stringify({ issuer: AUTH_API_URL, token: previous.session.token, businessDayId: previous.session.businessDayId, reason: effectiveReason }));
+      if (previous?.issuer === DEVICE_ISSUER) await native.deviceSignOut(previous.session.token);
+      else if (previous) await setItemAsync(PENDING_REVOCATION, JSON.stringify({ issuer: AUTH_API_URL, token: previous.session.token, businessDayId: previous.session.businessDayId, reason: effectiveReason }));
     } finally { await invalidateLocalSession(db); }
     if (previous) {
       await recordAuditEvent(db, { actor: { id: previous.localUserId, name: previous.session.user.name }, action: 'Cierre de sesión', entityType: 'Sesión', summary: effectiveReason === 'business_closed' ? 'Jornada terminada y negocio cerrado.' : 'Cierre manual.' }).catch(() => undefined);
@@ -56,6 +57,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const cached = await loadSession(db);
       if (!cached) { if (revision === operation.current) await logout(); return; }
+      if (current.issuer === DEVICE_ISSUER) return;
       const remote = await validateSession(current.session.token);
       if (remote.user.id !== current.session.user.id || remote.user.businessId !== current.session.user.businessId || remote.businessDayId !== current.session.businessDayId) throw new AuthError('La jornada o la cuenta cambió.', 'revoked');
       if (revision !== operation.current) return;
@@ -94,15 +96,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (username: string, password: string) => {
     const revision = ++operation.current;
     // Do not open a new day until an offline closure has reached the server.
-    await sendPendingRevocation();
-    const remote = await signIn(username, password);
+    const deviceSession = await native.deviceSignIn(username, password);
+    if (!deviceSession) await sendPendingRevocation();
+    const remote = deviceSession ?? await signIn(username, password);
     if (revision !== operation.current) return;
-    const updated = await synchronizeAccount(db, remote);
+    const updated = await synchronizeAccount(db, remote, undefined, deviceSession ? DEVICE_ISSUER : AUTH_API_URL);
     if (revision !== operation.current) return;
     await saveSession(updated.stored);
     if (revision !== operation.current) { await saveSession(null); return; }
     active.current = updated.stored; setUser(updated.user);
-    await recordAuditEvent(db, { actor: { id: updated.user.id, name: updated.user.name }, action: 'Inicio de sesión', entityType: 'Sesión', summary: 'Cuenta registrada en la web · sesión de jornada.' }).catch(() => undefined);
+    await recordAuditEvent(db, { actor: { id: updated.user.id, name: updated.user.name }, action: 'Inicio de sesión', entityType: 'Sesión', summary: deviceSession ? 'Cuenta habilitada para este dispositivo · sesión de jornada.' : 'Cuenta registrada en la web · sesión de jornada.' }).catch(() => undefined);
   }, [db]);
   const value = useMemo(() => ({ user, ready, login, logout, refreshSession }), [user, ready, login, logout, refreshSession]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

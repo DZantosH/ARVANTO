@@ -1,8 +1,8 @@
-jest.mock('@/src/native/platform', () => ({ getItemAsync: jest.fn(), setItemAsync: jest.fn(), randomUUID: () => 'local-user' }));
+jest.mock('@/src/native/platform', () => ({ getItemAsync: jest.fn(), setItemAsync: jest.fn(), randomUUID: () => 'local-user', native: { deviceSessionValid: jest.fn(), deviceSignOut: jest.fn() } }));
 jest.mock('@/src/config/auth', () => ({ AUTH_API_URL: 'https://arvanto.asyncz.tech/api' }));
-import { getItemAsync, setItemAsync } from '@/src/native/platform';
+import { getItemAsync, setItemAsync, native } from '@/src/native/platform';
 import type { SQLiteDatabase } from '@/src/native/database';
-import { invalidateLocalSession, loadSession, saveSession, synchronizeAccount } from './session';
+import { DEVICE_ISSUER, invalidateLocalSession, loadSession, saveSession, synchronizeAccount } from './session';
 
 const stored = () => ({ version: 1 as const, issuer: 'https://arvanto.asyncz.tech/api', epoch: 3, localUserId: 'local-user', session: { token: 'token', expiresAt: '2099-01-01T00:00:00Z', businessDayId: 'day-1', businessDayOpen: true as const, user: { id: 'web-user', name: 'Operador', username: 'operador', role: 'cashier' as const, businessId: 'store-1' } } });
 const first = jest.fn(); const run = jest.fn();
@@ -66,4 +66,26 @@ test('a delayed server response cannot reopen a business day closed locally', as
   first.mockResolvedValueOnce({ session_epoch: 4, business_id: 'store-1' });
   await expect(synchronizeAccount(db, stored().session, 3)).rejects.toMatchObject({ kind: 'revoked' });
   expect(run).not.toHaveBeenCalled();
+});
+test('a provisioned device session restores without contacting the undeployed web service', async () => {
+  const local = { ...stored(), issuer: DEVICE_ISSUER };
+  jest.mocked(getItemAsync).mockResolvedValue(JSON.stringify(local));
+  jest.mocked(native.deviceSessionValid).mockResolvedValue(true);
+  first.mockResolvedValueOnce({ session_epoch: 3, business_id: 'store-1' }).mockResolvedValueOnce({ id: 'local-user' });
+  expect(await loadSession(db)).toEqual(local);
+  expect(native.deviceSessionValid).toHaveBeenCalledWith('token');
+});
+test('revoked device tokens cannot restore access', async () => {
+  jest.mocked(getItemAsync).mockResolvedValue(JSON.stringify({ ...stored(), issuer: DEVICE_ISSUER }));
+  jest.mocked(native.deviceSessionValid).mockResolvedValue(false);
+  expect(await loadSession(db)).toBeNull();
+  expect(first).not.toHaveBeenCalled();
+});
+test('a locally closed business day revokes its device token without creating a web request', async () => {
+  jest.mocked(getItemAsync).mockResolvedValue(JSON.stringify({ ...stored(), issuer: DEVICE_ISSUER }));
+  jest.mocked(native.deviceSessionValid).mockResolvedValue(true);
+  first.mockResolvedValueOnce({ session_epoch: 4, business_id: 'store-1', last_end_reason: 'business_closed' });
+  expect(await loadSession(db)).toBeNull();
+  expect(native.deviceSignOut).toHaveBeenCalledWith('token');
+  expect(setItemAsync).not.toHaveBeenCalled();
 });

@@ -39,6 +39,8 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
+import javax.crypto.SecretKeyFactory
+import javax.crypto.spec.PBEKeySpec
 import org.json.JSONObject
 
 class ArvantoPackage : ReactPackage {
@@ -46,7 +48,7 @@ class ArvantoPackage : ReactPackage {
   override fun createViewManagers(context: ReactApplicationContext): List<ViewManager<*, *>> = emptyList()
 }
 
-class ArvantoPlatform(private val context: ReactApplicationContext) : ReactContextBaseJavaModule(context) {
+class ArvantoPlatform(private val context: ReactApplicationContext, private val deviceAccountKey: String = "arvanto.device-account.v1") : ReactContextBaseJavaModule(context) {
   private val worker = Executors.newSingleThreadExecutor()
   private val databases = mutableMapOf<String, SQLiteDatabase>()
   // Preserve the database location used by previously installed versions.
@@ -135,6 +137,40 @@ class ArvantoPlatform(private val context: ReactApplicationContext) : ReactConte
     value
   }
   @ReactMethod fun secureSet(key: String, value: String, promise: Promise) = task(promise) { check(prefs.edit().putString(key, encode(encrypt(value.toByteArray(), vaultKey()))).commit()); null }
+  private fun deviceAccount(): JSONObject? = prefs.getString(deviceAccountKey, null)?.let { JSONObject(String(decrypt(bytes(it), vaultKey()))) }
+  private fun saveDeviceAccount(record: JSONObject) { check(prefs.edit().putString(deviceAccountKey, encode(encrypt(record.toString().toByteArray(), vaultKey()))).commit()) }
+  @ReactMethod fun deviceSignIn(username: String, password: String, promise: Promise) = task(promise) {
+    val record = deviceAccount() ?: return@task null
+    require(record.optLong("blockedUntil", 0) <= System.currentTimeMillis()) { "Demasiados intentos. Espera un minuto antes de volver a intentar." }
+    val iterations = record.getInt("iterations"); require(iterations in 600000..2000000)
+    val spec = PBEKeySpec(password.toCharArray(), bytes(record.getString("salt")), iterations, 256)
+    val actual = try { SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded } finally { spec.clearPassword() }
+    val correct = MessageDigest.isEqual(actual, bytes(record.getString("hash"))) && username.trim().equals(record.getString("username"), ignoreCase = true)
+    actual.fill(0)
+    if (!correct) {
+      val failures = record.optInt("failures", 0) + 1
+      record.put("failures", if (failures >= 5) 0 else failures)
+      if (failures >= 5) record.put("blockedUntil", System.currentTimeMillis() + 60000)
+      saveDeviceAccount(record)
+      throw IllegalArgumentException("Usuario o contraseña incorrectos.")
+    }
+    val token = "device:" + UUID.randomUUID().toString()
+    record.put("token", token).put("failures", 0).put("blockedUntil", 0)
+    saveDeviceAccount(record)
+    Arguments.createMap().apply {
+      putString("token", token); putString("expiresAt", "9999-12-31T23:59:59Z")
+      putString("businessDayId", UUID.randomUUID().toString()); putBoolean("businessDayOpen", true)
+      putMap("user", Arguments.createMap().apply {
+        putString("id", record.getString("id")); putString("name", record.getString("name")); putString("username", record.getString("username")); putString("role", record.getString("role")); putString("businessId", record.getString("businessId"))
+      })
+    }
+  }
+  @ReactMethod fun deviceSessionValid(token: String, promise: Promise) = task(promise) { token.isNotEmpty() && deviceAccount()?.optString("token", "") == token }
+  @ReactMethod fun deviceSignOut(token: String, promise: Promise) = task(promise) {
+    val record = deviceAccount()
+    if (record != null && record.optString("token", "") == token) { record.remove("token"); saveDeviceAccount(record) }
+    null
+  }
   @ReactMethod fun readFile(uri: String, promise: Promise) = task(promise) { val f = file(uri); require(f.length() <= 64L * 1024 * 1024) { "Archivo demasiado grande." }; encode(f.readBytes()) }
   @ReactMethod fun writeFile(uri: String, data: String, promise: Promise) = task(promise) { val f = file(uri); f.parentFile!!.mkdirs(); f.writeBytes(bytes(data)); null }
   @ReactMethod fun openDatabase(name: String, promise: Promise) = task(promise) { if (!databases.containsKey(name)) databases[name] = open(name); name }
