@@ -91,6 +91,42 @@ export async function createCustomer(db: SQLiteDatabase, values: { name: string;
   await db.runAsync('INSERT INTO customers (id, name, phone, email, address, credit_limit_cents) VALUES (?, ?, ?, ?, ?, ?)', Crypto.randomUUID(), name, values.phone.trim(), values.email.trim(), values.address.trim(), values.creditLimitCents);
 }
 
+export async function updateCustomer(db: SQLiteDatabase, id: string, values: { name: string; phone: string; email: string; address: string; creditLimitCents: number }) {
+  const name = values.name.trim();
+  if (name.length < 2 || name.length > 100) throw new Error('El nombre debe tener entre 2 y 100 caracteres.');
+  if (!Number.isSafeInteger(values.creditLimitCents) || values.creditLimitCents < 0) throw new Error('El límite de crédito no es válido.');
+  const email = values.email.trim();
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Escribe un correo válido.');
+  const result = await db.runAsync('UPDATE customers SET name=?, phone=?, email=?, address=?, credit_limit_cents=? WHERE id=?', name, values.phone.trim().slice(0, 40), email.slice(0, 120), values.address.trim().slice(0, 240), values.creditLimitCents, id);
+  if (!result.changes) throw new Error('El cliente ya no existe.');
+}
+
+export async function getCustomerAccountHistory(db: SQLiteDatabase, customerId: string) {
+  const sales = await db.getAllAsync<{ id: string; ticket_number: number; status: 'completed' | 'cancelled'; total_cents: number; credit_cents: number; created_at: string; items: string; returned_cents: number }>(
+    `SELECT s.id, s.ticket_number, s.status, s.total_cents, s.credit_cents, s.created_at,
+       COALESCE((SELECT group_concat(si.product_name || ' × ' || printf('%g', si.quantity), ', ') FROM sale_items si WHERE si.sale_id=s.id),'') AS items,
+       COALESCE((SELECT SUM(r.refund_cents) FROM sale_returns r WHERE r.sale_id=s.id),0) AS returned_cents
+     FROM sales s WHERE s.customer_id=? ORDER BY s.created_at DESC LIMIT 100`, customerId,
+  );
+  const movements = await db.getAllAsync<{ id: string; kind: 'charge' | 'payment' | 'return'; amount_cents: number; description: string; method: string; created_at: string; created_by: string }>(
+    `SELECT id, kind, amount_cents, description, method, created_at, created_by FROM (
+       SELECT s.id, 'charge' AS kind, s.credit_cents AS amount_cents,
+         'Venta a crédito · Ticket #' || s.ticket_number AS description, 'crédito' AS method, s.created_at, s.created_by
+       FROM sales s WHERE s.customer_id=? AND s.status='completed' AND s.credit_cents>0
+       UNION ALL
+       SELECT r.id, 'return' AS kind, r.credit_refund_cents AS amount_cents,
+         'Devolución · Ticket #' || s.ticket_number AS description, 'crédito' AS method, r.created_at, r.created_by
+       FROM sale_returns r JOIN sales s ON s.id=r.sale_id WHERE s.customer_id=? AND s.status='completed' AND r.credit_refund_cents>0
+       UNION ALL
+       SELECT cp.id, 'payment' AS kind, cp.amount_cents,
+         CASE WHEN trim(cp.note)='' THEN 'Abono a cuenta' ELSE cp.note END AS description,
+         cp.method, cp.created_at, cp.created_by
+       FROM credit_payments cp WHERE cp.customer_id=?
+     ) ORDER BY created_at DESC LIMIT 200`, customerId, customerId, customerId,
+  );
+  return { sales, movements };
+}
+
 export async function addCreditPayment(db: SQLiteDatabase, customerId: string, method: 'cash' | 'card' | 'transfer', amountCents: number, note: string, createdBy = 'Administrador') {
   if (!Number.isSafeInteger(amountCents) || amountCents <= 0) throw new Error('El abono debe ser mayor a cero.');
   await db.withExclusiveTransactionAsync(async (txn) => {
