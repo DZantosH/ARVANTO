@@ -285,3 +285,95 @@ export async function getBusinessReport(db: SQLiteDatabase) {
   );
   return { salesCents: today?.sales_cents ?? 0, tickets: today?.tickets ?? 0, costCents: today?.cost_cents ?? 0, creditCents: today?.credit_cents ?? 0, products: inventory?.products ?? 0, lowStock: inventory?.low_stock ?? 0, stockValueCents: inventory?.stock_value_cents ?? 0, purchasesCents: purchases?.total_cents ?? 0, purchaseCount: purchases?.count ?? 0, receivablesCents: receivables?.balance_cents ?? 0, payablesCents: payables?.balance_cents ?? 0 };
 }
+
+export type ReportDay = { date: string; salesCents: number; refundsCents: number; netSalesCents: number; tickets: number; costCents: number; creditCents: number; purchasesCents: number; purchaseCount: number };
+export type PeriodBusinessReport = { from: string; to: string; salesCents: number; refundsCents: number; tickets: number; costCents: number; creditCents: number; products: number; lowStock: number; stockValueCents: number; purchasesCents: number; purchaseCount: number; receivablesCents: number; payablesCents: number; days: ReportDay[] };
+
+function isValidReportDate(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
+export async function getBusinessReportForPeriod(db: SQLiteDatabase, from: string, to: string): Promise<PeriodBusinessReport> {
+  if (!isValidReportDate(from) || !isValidReportDate(to) || from > to) throw new Error('El periodo del reporte no es válido.');
+  const args = [from, to];
+  const sales = await db.getFirstAsync<{ sales_cents: number; tickets: number; credit_cents: number }>(
+    `SELECT COALESCE(SUM(total_cents),0) AS sales_cents, COUNT(*) AS tickets, COALESCE(SUM(credit_cents),0) AS credit_cents
+     FROM sales WHERE status='completed' AND date(created_at,'localtime') BETWEEN ? AND ?`, ...args,
+  );
+  const returns = await db.getFirstAsync<{ refunds_cents: number; credit_refunds_cents: number }>(
+    `SELECT COALESCE(SUM(r.refund_cents),0) AS refunds_cents, COALESCE(SUM(r.credit_refund_cents),0) AS credit_refunds_cents
+     FROM sale_returns r JOIN sales s ON s.id=r.sale_id
+     WHERE s.status='completed' AND date(r.created_at,'localtime') BETWEEN ? AND ?`, ...args,
+  );
+  const saleCost = await db.getFirstAsync<{ cost_cents: number }>(
+    `SELECT CAST(ROUND(COALESCE(SUM(si.unit_cost_cents * si.inventory_quantity),0)) AS INTEGER) AS cost_cents
+     FROM sale_items si JOIN sales s ON s.id=si.sale_id
+     WHERE s.status='completed' AND date(s.created_at,'localtime') BETWEEN ? AND ?`, ...args,
+  );
+  const returnCost = await db.getFirstAsync<{ cost_cents: number }>(
+    `SELECT CAST(ROUND(COALESCE(SUM(si.unit_cost_cents * ri.inventory_quantity),0)) AS INTEGER) AS cost_cents
+     FROM sale_return_items ri JOIN sale_returns r ON r.id=ri.return_id JOIN sales s ON s.id=r.sale_id JOIN sale_items si ON si.id=ri.sale_item_id
+     WHERE s.status='completed' AND date(r.created_at,'localtime') BETWEEN ? AND ?`, ...args,
+  );
+  const purchaseSummary = await db.getFirstAsync<{ total_cents: number; count: number }>(
+    `SELECT COALESCE(SUM(total_cents),0) AS total_cents, COUNT(*) AS count FROM purchases
+     WHERE date(created_at,'localtime') BETWEEN ? AND ?`, ...args,
+  );
+  const inventory = await db.getFirstAsync<{ products: number; low_stock: number; stock_value_cents: number }>(
+    `SELECT COUNT(*) AS products, COALESCE(SUM(CASE WHEN minimum_stock>0 AND stock_quantity<=minimum_stock THEN 1 ELSE 0 END),0) AS low_stock,
+       CAST(ROUND(COALESCE(SUM(stock_quantity * cost_cents),0)) AS INTEGER) AS stock_value_cents FROM products WHERE is_active=1`,
+  );
+  const receivables = await db.getFirstAsync<{ balance_cents: number }>(
+    `SELECT COALESCE((SELECT SUM(credit_cents) FROM sales WHERE status='completed'),0) -
+       COALESCE((SELECT SUM(r.credit_refund_cents) FROM sale_returns r JOIN sales s ON s.id=r.sale_id WHERE s.status='completed'),0) -
+       COALESCE((SELECT SUM(amount_cents) FROM credit_payments),0) AS balance_cents`,
+  );
+  const payables = await db.getFirstAsync<{ balance_cents: number }>(
+    'SELECT COALESCE((SELECT SUM(total_cents) FROM purchases WHERE is_legacy=0 AND supplier_id IS NOT NULL),0)-COALESCE((SELECT SUM(amount_cents) FROM supplier_payments),0) AS balance_cents',
+  );
+  const rawDays = await Promise.all([
+    db.getAllAsync<{ date: string; sales: number; tickets: number; credit: number }>(
+      `SELECT date(created_at,'localtime') AS date, SUM(total_cents) AS sales, COUNT(*) AS tickets, SUM(credit_cents) AS credit
+       FROM sales WHERE status='completed' AND date(created_at,'localtime') BETWEEN ? AND ? GROUP BY date ORDER BY date`, ...args,
+    ),
+    db.getAllAsync<{ date: string; refunds: number }>(
+      `SELECT date(created_at,'localtime') AS date, SUM(refund_cents) AS refunds FROM sale_returns
+       WHERE date(created_at,'localtime') BETWEEN ? AND ? GROUP BY date ORDER BY date`, ...args,
+    ),
+    db.getAllAsync<{ date: string; cost: number }>(
+      `SELECT date(s.created_at,'localtime') AS date, CAST(ROUND(SUM(si.unit_cost_cents * si.inventory_quantity)) AS INTEGER) AS cost
+       FROM sale_items si JOIN sales s ON s.id=si.sale_id WHERE s.status='completed' AND date(s.created_at,'localtime') BETWEEN ? AND ? GROUP BY date`, ...args,
+    ),
+    db.getAllAsync<{ date: string; cost: number }>(
+      `SELECT date(r.created_at,'localtime') AS date, CAST(ROUND(SUM(si.unit_cost_cents * ri.inventory_quantity)) AS INTEGER) AS cost
+       FROM sale_return_items ri JOIN sale_returns r ON r.id=ri.return_id JOIN sales s ON s.id=r.sale_id JOIN sale_items si ON si.id=ri.sale_item_id
+       WHERE s.status='completed' AND date(r.created_at,'localtime') BETWEEN ? AND ? GROUP BY date`, ...args,
+    ),
+    db.getAllAsync<{ date: string; purchases: number; count: number }>(
+      `SELECT date(created_at,'localtime') AS date, SUM(total_cents) AS purchases, COUNT(*) AS count FROM purchases
+       WHERE date(created_at,'localtime') BETWEEN ? AND ? GROUP BY date ORDER BY date`, ...args,
+    ),
+  ]);
+  const days = new Map<string, ReportDay>();
+  const dayFor = (date: string) => {
+    let row = days.get(date);
+    if (!row) { row = { date, salesCents: 0, refundsCents: 0, netSalesCents: 0, tickets: 0, costCents: 0, creditCents: 0, purchasesCents: 0, purchaseCount: 0 }; days.set(date, row); }
+    return row;
+  };
+  for (const row of rawDays[0]) { const day = dayFor(row.date); day.salesCents = row.sales; day.tickets = row.tickets; day.creditCents = row.credit; }
+  for (const row of rawDays[1]) dayFor(row.date).refundsCents = row.refunds;
+  for (const row of rawDays[2]) dayFor(row.date).costCents += row.cost;
+  for (const row of rawDays[3]) dayFor(row.date).costCents -= row.cost;
+  for (const row of rawDays[4]) { const day = dayFor(row.date); day.purchasesCents = row.purchases; day.purchaseCount = row.count; }
+  const daily = [...days.values()].sort((a, b) => b.date.localeCompare(a.date)).map((day) => ({ ...day, netSalesCents: day.salesCents - day.refundsCents }));
+  return {
+    from, to, salesCents: (sales?.sales_cents ?? 0) - (returns?.refunds_cents ?? 0), refundsCents: returns?.refunds_cents ?? 0,
+    tickets: sales?.tickets ?? 0, costCents: (saleCost?.cost_cents ?? 0) - (returnCost?.cost_cents ?? 0),
+    creditCents: (sales?.credit_cents ?? 0) - (returns?.credit_refunds_cents ?? 0), products: inventory?.products ?? 0,
+    lowStock: inventory?.low_stock ?? 0, stockValueCents: inventory?.stock_value_cents ?? 0,
+    purchasesCents: purchaseSummary?.total_cents ?? 0, purchaseCount: purchaseSummary?.count ?? 0,
+    receivablesCents: receivables?.balance_cents ?? 0, payablesCents: payables?.balance_cents ?? 0, days: daily,
+  };
+}
