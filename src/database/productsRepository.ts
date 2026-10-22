@@ -1,5 +1,6 @@
 import * as Crypto from 'expo-crypto';
 import type { SQLiteDatabase } from 'expo-sqlite';
+import { recordAuditEvent } from './auditRepository';
 
 export type Product = {
   id: string;
@@ -83,7 +84,7 @@ export async function searchProducts(
   return { items, total: count?.total ?? 0 };
 }
 
-export async function createProduct(db: SQLiteDatabase, input: ProductInput, createdBy = 'Administrador'): Promise<string> {
+export async function createProduct(db: SQLiteDatabase, input: ProductInput, createdBy = 'Administrador', actorId?: string): Promise<string> {
   const id = Crypto.randomUUID();
   const openingStock = input.openingStock ?? 0;
   await db.withExclusiveTransactionAsync(async (txn) => {
@@ -96,11 +97,12 @@ export async function createProduct(db: SQLiteDatabase, input: ProductInput, cre
       `INSERT INTO inventory_movements (id, product_id, kind, quantity_delta, reference_id, reason, created_by)
        VALUES (?, ?, 'adjustment', ?, ?, 'Existencia inicial', ?)`, Crypto.randomUUID(), id, openingStock, id, createdBy,
     );
+    await recordAuditEvent(txn, { actor: { id: actorId, name: createdBy }, action: 'Producto creado', entityType: 'Producto', entityId: id, summary: input.name.trim() });
   });
   return id;
 }
 
-export async function importProducts(db: SQLiteDatabase, inputs: ProductInput[], createdBy = 'Administrador'): Promise<void> {
+export async function importProducts(db: SQLiteDatabase, inputs: ProductInput[], createdBy = 'Administrador', actorId?: string): Promise<void> {
   if (!inputs.length) return;
   await db.withExclusiveTransactionAsync(async (transaction) => {
     const seenSkus = new Set<string>();
@@ -149,10 +151,11 @@ export async function importProducts(db: SQLiteDatabase, inputs: ProductInput[],
         Crypto.randomUUID(), productId, openingStock, productId, createdBy,
       );
     }
+    await recordAuditEvent(transaction, { actor: { id: actorId, name: createdBy }, action: 'Catálogo importado', entityType: 'Producto', summary: `${inputs.length} productos importados.` });
   });
 }
 
-export async function updateProduct(db: SQLiteDatabase, id: string, input: ProductInput): Promise<void> {
+export async function updateProduct(db: SQLiteDatabase, id: string, input: ProductInput, updatedBy = 'Administrador', actorId?: string): Promise<void> {
   await db.withExclusiveTransactionAsync(async (txn) => {
     const current = await txn.getFirstAsync<{ stock_quantity: number; unit_name: string; sale_unit_name: string; sale_unit_factor: number; sale_unit_price_cents: number | null }>(
       'SELECT stock_quantity,unit_name,sale_unit_name,sale_unit_factor,sale_unit_price_cents FROM products WHERE id=?', id,
@@ -174,15 +177,17 @@ export async function updateProduct(db: SQLiteDatabase, id: string, input: Produ
       normalizeSku(input.sku), normalizeBarcode(input.barcode), input.name.trim(), input.description.trim(), input.costCents, input.priceCents,
       input.minimumStock, input.unitName, input.saleUnitName, input.saleUnitFactor, input.saleUnitPriceCents, id,
     );
+    await recordAuditEvent(txn, { actor: { id: actorId, name: updatedBy }, action: 'Producto actualizado', entityType: 'Producto', entityId: id, summary: input.name.trim() });
   });
 }
 
-export async function setProductActive(db: SQLiteDatabase, id: string, isActive: boolean): Promise<void> {
-  await db.runAsync(
-    `UPDATE products SET is_active = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?`,
-    isActive ? 1 : 0,
-    id,
-  );
+export async function setProductActive(db: SQLiteDatabase, id: string, isActive: boolean, updatedBy = 'Administrador', actorId?: string): Promise<void> {
+  await db.withExclusiveTransactionAsync(async (txn) => {
+    const product = await txn.getFirstAsync<{ name: string }>('SELECT name FROM products WHERE id=?', id);
+    if (!product) throw new Error('No se encontró el producto.');
+    await txn.runAsync(`UPDATE products SET is_active = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?`, isActive ? 1 : 0, id);
+    await recordAuditEvent(txn, { actor: { id: actorId, name: updatedBy }, action: isActive ? 'Producto activado' : 'Producto desactivado', entityType: 'Producto', entityId: id, summary: product.name });
+  });
 }
 
 function normalizeSku(sku: string | null): string | null {

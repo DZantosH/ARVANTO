@@ -129,7 +129,7 @@ export function ProductImportModal({ visible, onClose, onImported }: Props) {
     setError('');
     try {
       const inputs: ProductInput[] = selected.map(({ result }) => result.ok ? result.value : (() => { throw new Error('invalid_product'); })());
-      await importProducts(db, inputs, user?.name);
+      await importProducts(db, inputs, user?.name, user?.id);
       await onImported(inputs.length);
       setRows([]);
       setExistingSkus(new Set());

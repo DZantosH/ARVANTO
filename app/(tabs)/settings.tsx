@@ -51,6 +51,7 @@ export default function SettingsScreen() {
     })}
     <Text style={styles.hint}>La opción Sistema cambia automáticamente cuando actualizas el tema de tu dispositivo.</Text>
     <Text style={styles.account}>Sesión: {user?.name} · {user?.role === 'admin' ? 'Administrador' : user?.role === 'manager' ? 'Encargado' : 'Cajero'}</Text>
+    <Link href={'/change-pin' as Href} asChild><Pressable style={styles.accountLink}><Text style={styles.accountLinkText}>Cambiar mi PIN</Text></Pressable></Link>
     {user?.role === 'admin' ? <Link href={'/users' as Href} asChild><Pressable style={styles.accountLink}><Text style={styles.accountLinkText}>Administrar usuarios y permisos</Text></Pressable></Link> : null}
     <Pressable onPress={logout} style={styles.logout}><Text style={styles.logoutText}>Cerrar sesión</Text></Pressable>
   </ScrollView>;

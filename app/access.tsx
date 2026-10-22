@@ -19,7 +19,7 @@ export default function AccessScreen() {
   if (!ready) return <Text style={styles.loading}>Cargando usuarios…</Text>;
   return <View style={styles.page}><View style={styles.panel}>
     <Text style={styles.eyebrow}>FERREPOS · ACCESO LOCAL</Text><Text style={styles.title}>{setup ? 'Configura tu negocio' : 'Iniciar sesión'}</Text>
-    <Text style={styles.body}>{setup ? 'Crea el primer usuario administrador para proteger ventas y configuración.' : 'Ingresa tu PIN para abrir el punto de venta.'}</Text>
+    <Text style={styles.body}>{setup ? 'Crea el primer usuario administrador para proteger ventas y configuración.' : 'Ingresa tu PIN para abrir el punto de venta. Si lo olvidaste, solicita a un administrador que lo restablezca.'}</Text>
     {setup ? <TextInput accessibilityLabel="Nombre del administrador" value={name} onChangeText={setName} placeholder="Nombre del administrador" placeholderTextColor={theme.colors.muted} style={styles.input} /> : null}
     <TextInput accessibilityLabel="PIN" value={pin} onChangeText={setPin} placeholder="PIN de 6 a 8 dígitos" placeholderTextColor={theme.colors.muted} keyboardType="number-pad" secureTextEntry maxLength={8} style={styles.input} />
     {error ? <Text style={styles.error}>{error}</Text> : null}

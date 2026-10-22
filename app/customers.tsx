@@ -34,7 +34,8 @@ export default function CustomersScreen() {
     try {
       const creditLimitCents = user?.role === 'cashier' ? (editing ? selected?.credit_limit_cents ?? 0 : 0) : (!limit.trim() ? 0 : parseCurrencyToCents(limit));
       const values = { name, phone, email, address, creditLimitCents };
-      if (editing && selected) await updateCustomer(db, selected.id, values); else await createCustomer(db, values);
+      const actor = user ? { id: user.id, name: user.name } : null;
+      if (editing && selected) await updateCustomer(db, selected.id, values, actor); else await createCustomer(db, values, actor);
       clearForm(); await refresh();
       if (editing && selected) { const updated = await getCustomers(db, query); setCustomers(updated); setSelected(updated.find((customer) => customer.id === selected.id) ?? null); }
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'No se pudo guardar el cliente.'); }

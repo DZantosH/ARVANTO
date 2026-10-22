@@ -267,7 +267,7 @@ export async function cancelSale(db: SQLiteDatabase, saleId: string, reason: str
     const allocation = await allocateSaleRefund(txn, saleId, sale.total_cents);
     await txn.runAsync('INSERT INTO sale_returns (id,sale_id,session_id,reason,refund_cents,cash_refund_cents,card_refund_cents,transfer_refund_cents,credit_refund_cents,created_by) VALUES (?,?,?,?,?,?,?,?,?,?)', refundId, saleId, session.id, normalized, sale.total_cents, allocation.cash, allocation.card, allocation.transfer, allocation.credit, createdBy);
     if (allocation.cash > 0) await txn.runAsync('INSERT INTO cash_movements (id,session_id,kind,amount_cents,reason,created_by) VALUES (?, ?, \'out\', ?, ?, ?)', Crypto.randomUUID(), session.id, allocation.cash, `Reembolso cancelación ticket: ${normalized}`, createdBy);
-    await txn.runAsync("UPDATE sales SET status = 'cancelled' WHERE id = ? AND status = 'completed'", saleId);
+    await txn.runAsync("UPDATE sales SET status='cancelled',cancelled_by=?,cancel_reason=? WHERE id=? AND status='completed'", createdBy, normalized, saleId);
   });
 }
 
@@ -372,8 +372,8 @@ export async function loadSalesDocument(db: SQLiteDatabase, id: string): Promise
   return { document, lines: items.map((i) => ({ productId: i.product_id, name: i.product_name, sku: i.sku, quantity: i.quantity, unitPriceCents: i.unit_price_cents, unitCostCents: i.cost, stock: i.stock, unitName: i.unit_name, inventoryFactor: i.unit_factor })) };
 }
 
-export async function cancelSalesDocument(db: SQLiteDatabase, id: string): Promise<void> {
-  await db.runAsync("UPDATE sales_documents SET status='cancelled' WHERE id=? AND status='open'", id);
+export async function cancelSalesDocument(db: SQLiteDatabase, id: string, cancelledBy = 'Administrador'): Promise<void> {
+  await db.runAsync("UPDATE sales_documents SET status='cancelled',cancelled_by=?,cancel_reason='Cancelación manual' WHERE id=? AND status='open'", cancelledBy, id);
 }
 
 function discountInvalid(totals: { subtotalCents: number; discountCents: number; taxCents: number; totalCents: number }) {

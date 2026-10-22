@@ -117,6 +117,6 @@ export async function completeInventoryCount(db: SQLiteDatabase, countId: string
   return result;
 }
 
-export async function cancelInventoryCount(db: SQLiteDatabase, countId: string): Promise<void> {
-  await db.runAsync("UPDATE inventory_counts SET status='cancelled' WHERE id=? AND status='open'", countId);
+export async function cancelInventoryCount(db: SQLiteDatabase, countId: string, cancelledBy = 'Administrador'): Promise<void> {
+  await db.runAsync("UPDATE inventory_counts SET status='cancelled',cancelled_by=? WHERE id=? AND status='open'", cancelledBy, countId);
 }

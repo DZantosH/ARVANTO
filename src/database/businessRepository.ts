@@ -1,5 +1,6 @@
 import * as Crypto from 'expo-crypto';
 import type { SQLiteDatabase } from 'expo-sqlite';
+import { recordAuditEvent, type AuditActor } from './auditRepository';
 
 export type InventoryMovement = { id: string; product_name: string; sku: string | null; unit_name: string; kind: 'sale' | 'adjustment' | 'purchase'; quantity_delta: number; reason: string; created_at: string; created_by: string };
 export type Customer = { id: string; name: string; phone: string; email: string; address: string; credit_limit_cents: number; is_active: number; balance_cents: number };
@@ -16,17 +17,38 @@ export async function getUsers(db: SQLiteDatabase) {
   return db.getAllAsync<AppUser>('SELECT id, name, role, is_active FROM app_users ORDER BY is_active DESC, name COLLATE NOCASE');
 }
 
-export async function createUser(db: SQLiteDatabase, name: string, pin: string, role: UserRole) {
+function validatePin(pin: string) {
+  if (!/^\d{6,8}$/.test(pin)) throw new Error('El PIN debe tener entre 6 y 8 dígitos.');
+}
+
+async function ensurePinAvailable(db: SQLiteDatabase, pin: string, exceptUserId?: string) {
+  const existing = await db.getAllAsync<{ id: string; pin_hash: string }>('SELECT id, pin_hash FROM app_users');
+  for (const record of existing) {
+    if (record.id !== exceptUserId) {
+      const separator = record.pin_hash.indexOf('$');
+      if (separator > 0 && await makePinHash(pin, record.pin_hash.slice(0, separator)) === record.pin_hash) throw new Error('Ese PIN ya está asignado a otro usuario. Elige uno distinto.');
+    }
+  }
+}
+
+async function assertAdministrator(db: SQLiteDatabase, actorId: string) {
+  const actor = await db.getFirstAsync<{ role: string; is_active: number }>('SELECT role, is_active FROM app_users WHERE id=?', actorId);
+  if (!actor || actor.role !== 'admin' || !actor.is_active) throw new Error('Solo un administrador activo puede realizar esta acción.');
+}
+
+export async function createUser(db: SQLiteDatabase, name: string, pin: string, role: UserRole, actor?: AuditActor | null) {
   const normalized = name.trim();
   if (normalized.length < 2 || normalized.length > 80) throw new Error('El nombre debe tener entre 2 y 80 caracteres.');
-  if (!/^\d{6,8}$/.test(pin)) throw new Error('El PIN debe tener entre 6 y 8 dígitos.');
-  const existing = await db.getAllAsync<{ pin_hash: string }>('SELECT pin_hash FROM app_users');
-  for (const record of existing) {
-    const separator = record.pin_hash.indexOf('$');
-    if (separator > 0 && await makePinHash(pin, record.pin_hash.slice(0, separator)) === record.pin_hash) throw new Error('Ese PIN ya está asignado a otro usuario. Elige uno distinto.');
-  }
+  validatePin(pin);
+  if (!['admin', 'manager', 'cashier'].includes(role)) throw new Error('El perfil seleccionado no es válido.');
   const salt = Crypto.randomUUID();
-  await db.runAsync('INSERT INTO app_users (id, name, pin_hash, role) VALUES (?, ?, ?, ?)', Crypto.randomUUID(), normalized, await makePinHash(pin, salt), role);
+  const id = Crypto.randomUUID(); const pinHash = await makePinHash(pin, salt);
+  await db.withExclusiveTransactionAsync(async (txn) => {
+    await ensurePinAvailable(txn, pin);
+    if (actor?.id) await assertAdministrator(txn, actor.id);
+    await txn.runAsync('INSERT INTO app_users (id, name, pin_hash, role) VALUES (?, ?, ?, ?)', id, normalized, pinHash, role);
+    await recordAuditEvent(txn, { actor: actor ?? { name: 'Configuración inicial' }, action: 'Usuario creado', entityType: 'Usuario', entityId: id, summary: `${normalized} · ${role}` });
+  });
 }
 
 export async function authenticateUser(db: SQLiteDatabase, pin: string): Promise<AppUser | null> {
@@ -36,16 +58,75 @@ export async function authenticateUser(db: SQLiteDatabase, pin: string): Promise
     const separator = candidate.pin_hash.indexOf('$');
     const salt = candidate.pin_hash.slice(0, separator);
     if (separator > 0 && await makePinHash(pin, salt) === candidate.pin_hash) {
-      if (match) return null;
+      if (match) { match = null; break; }
       const { pin_hash: _pinHash, ...user } = candidate;
       match = user;
     }
   }
+  await recordAuditEvent(db, match
+    ? { actor: { id: match.id, name: match.name }, action: 'Inicio de sesión', entityType: 'Sesión', summary: 'Acceso local iniciado.' }
+    : { actor: { name: 'Acceso local' }, action: 'Acceso fallido', entityType: 'Sesión', summary: 'PIN inválido o usuario inactivo.' });
   return match;
 }
 
-export async function setUserActive(db: SQLiteDatabase, id: string, active: boolean) {
-  await db.runAsync('UPDATE app_users SET is_active = ? WHERE id = ?', active ? 1 : 0, id);
+export async function updateUserProfile(db: SQLiteDatabase, id: string, name: string, role: UserRole, actorId: string) {
+  const normalized = name.trim();
+  if (normalized.length < 2 || normalized.length > 80) throw new Error('El nombre debe tener entre 2 y 80 caracteres.');
+  if (!['admin', 'manager', 'cashier'].includes(role)) throw new Error('El perfil seleccionado no es válido.');
+  await db.withExclusiveTransactionAsync(async (txn) => {
+    await assertAdministrator(txn, actorId);
+    const target = await txn.getFirstAsync<AppUser>('SELECT id, name, role, is_active FROM app_users WHERE id=?', id);
+    if (!target) throw new Error('El usuario ya no existe.');
+    if (target.role === 'admin' && target.is_active && role !== 'admin') {
+      const admins = await txn.getFirstAsync<{ count: number }>('SELECT COUNT(*) AS count FROM app_users WHERE role=\'admin\' AND is_active=1');
+      if ((admins?.count ?? 0) <= 1) throw new Error('Debe quedar al menos un administrador activo.');
+    }
+    await txn.runAsync('UPDATE app_users SET name=?, role=? WHERE id=?', normalized, role, id);
+    await recordAuditEvent(txn, { actor: { id: actorId }, action: 'Perfil actualizado', entityType: 'Usuario', entityId: id, summary: `${target.name} → ${normalized} · ${target.role} → ${role}` });
+  });
+}
+
+export async function setUserActive(db: SQLiteDatabase, id: string, active: boolean, actorId: string) {
+  await db.withExclusiveTransactionAsync(async (txn) => {
+    await assertAdministrator(txn, actorId);
+    const target = await txn.getFirstAsync<AppUser>('SELECT id, name, role, is_active FROM app_users WHERE id=?', id);
+    if (!target) throw new Error('El usuario ya no existe.');
+    if (actorId === id && !active) throw new Error('No puedes desactivar la sesión que estás usando.');
+    if (target.role === 'admin' && target.is_active && !active) {
+      const admins = await txn.getFirstAsync<{ count: number }>('SELECT COUNT(*) AS count FROM app_users WHERE role=\'admin\' AND is_active=1');
+      if ((admins?.count ?? 0) <= 1) throw new Error('Debe quedar al menos un administrador activo.');
+    }
+    await txn.runAsync('UPDATE app_users SET is_active=? WHERE id=?', active ? 1 : 0, id);
+    await recordAuditEvent(txn, { actor: { id: actorId }, action: active ? 'Usuario activado' : 'Usuario desactivado', entityType: 'Usuario', entityId: id, summary: target.name });
+  });
+}
+
+export async function changeUserPin(db: SQLiteDatabase, id: string, currentPin: string, nextPin: string) {
+  validatePin(currentPin); validatePin(nextPin);
+  await db.withExclusiveTransactionAsync(async (txn) => {
+    const target = await txn.getFirstAsync<AppUser & { pin_hash: string }>('SELECT id, name, role, is_active, pin_hash FROM app_users WHERE id=?', id);
+    if (!target || !target.is_active) throw new Error('El usuario no existe o está inactivo.');
+    const separator = target.pin_hash.indexOf('$'); const salt = target.pin_hash.slice(0, separator);
+    if (separator < 1 || await makePinHash(currentPin, salt) !== target.pin_hash) throw new Error('El PIN actual es incorrecto.');
+    await ensurePinAvailable(txn, nextPin, id);
+    const newSalt = Crypto.randomUUID();
+    await txn.runAsync('UPDATE app_users SET pin_hash=? WHERE id=?', await makePinHash(nextPin, newSalt), id);
+    await recordAuditEvent(txn, { actor: { id, name: target.name }, action: 'PIN cambiado', entityType: 'Usuario', entityId: id, summary: 'El usuario cambió su propio PIN.' });
+  });
+}
+
+export async function resetUserPin(db: SQLiteDatabase, id: string, nextPin: string, actorId: string) {
+  validatePin(nextPin);
+  await db.withExclusiveTransactionAsync(async (txn) => {
+    await assertAdministrator(txn, actorId);
+    if (id === actorId) throw new Error('Para cambiar tu PIN usa la opción de cambio con tu PIN actual.');
+    const target = await txn.getFirstAsync<AppUser>('SELECT id, name, role, is_active FROM app_users WHERE id=?', id);
+    if (!target) throw new Error('El usuario ya no existe.');
+    await ensurePinAvailable(txn, nextPin, id);
+    const salt = Crypto.randomUUID();
+    await txn.runAsync('UPDATE app_users SET pin_hash=? WHERE id=?', await makePinHash(nextPin, salt), id);
+    await recordAuditEvent(txn, { actor: { id: actorId }, action: 'PIN restablecido', entityType: 'Usuario', entityId: id, summary: `PIN restablecido para ${target.name}.` });
+  });
 }
 
 export async function getInventoryMovements(db: SQLiteDatabase, productId?: string) {
@@ -84,21 +165,28 @@ export async function getCustomers(db: SQLiteDatabase, query = '') {
   );
 }
 
-export async function createCustomer(db: SQLiteDatabase, values: { name: string; phone: string; email: string; address: string; creditLimitCents: number }) {
+export async function createCustomer(db: SQLiteDatabase, values: { name: string; phone: string; email: string; address: string; creditLimitCents: number }, actor?: AuditActor | null) {
   const name = values.name.trim();
   if (name.length < 2 || name.length > 100) throw new Error('El nombre debe tener entre 2 y 100 caracteres.');
   if (!Number.isSafeInteger(values.creditLimitCents) || values.creditLimitCents < 0) throw new Error('El límite de crédito no es válido.');
-  await db.runAsync('INSERT INTO customers (id, name, phone, email, address, credit_limit_cents) VALUES (?, ?, ?, ?, ?, ?)', Crypto.randomUUID(), name, values.phone.trim(), values.email.trim(), values.address.trim(), values.creditLimitCents);
+  const id = Crypto.randomUUID();
+  await db.withExclusiveTransactionAsync(async (txn) => {
+    await txn.runAsync('INSERT INTO customers (id, name, phone, email, address, credit_limit_cents) VALUES (?, ?, ?, ?, ?, ?)', id, name, values.phone.trim(), values.email.trim(), values.address.trim(), values.creditLimitCents);
+    await recordAuditEvent(txn, { actor, action: 'Cliente creado', entityType: 'Cliente', entityId: id, summary: name });
+  });
 }
 
-export async function updateCustomer(db: SQLiteDatabase, id: string, values: { name: string; phone: string; email: string; address: string; creditLimitCents: number }) {
+export async function updateCustomer(db: SQLiteDatabase, id: string, values: { name: string; phone: string; email: string; address: string; creditLimitCents: number }, actor?: AuditActor | null) {
   const name = values.name.trim();
   if (name.length < 2 || name.length > 100) throw new Error('El nombre debe tener entre 2 y 100 caracteres.');
   if (!Number.isSafeInteger(values.creditLimitCents) || values.creditLimitCents < 0) throw new Error('El límite de crédito no es válido.');
   const email = values.email.trim();
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Escribe un correo válido.');
-  const result = await db.runAsync('UPDATE customers SET name=?, phone=?, email=?, address=?, credit_limit_cents=? WHERE id=?', name, values.phone.trim().slice(0, 40), email.slice(0, 120), values.address.trim().slice(0, 240), values.creditLimitCents, id);
-  if (!result.changes) throw new Error('El cliente ya no existe.');
+  await db.withExclusiveTransactionAsync(async (txn) => {
+    const result = await txn.runAsync('UPDATE customers SET name=?, phone=?, email=?, address=?, credit_limit_cents=? WHERE id=?', name, values.phone.trim().slice(0, 40), email.slice(0, 120), values.address.trim().slice(0, 240), values.creditLimitCents, id);
+    if (!result.changes) throw new Error('El cliente ya no existe.');
+    await recordAuditEvent(txn, { actor, action: 'Cliente actualizado', entityType: 'Cliente', entityId: id, summary: name });
+  });
 }
 
 export async function getCustomerAccountHistory(db: SQLiteDatabase, customerId: string) {
@@ -161,10 +249,14 @@ export async function getLowStockProducts(db: SQLiteDatabase) {
   );
 }
 
-export async function createSupplier(db: SQLiteDatabase, name: string, phone = '', email = '') {
+export async function createSupplier(db: SQLiteDatabase, name: string, phone = '', email = '', actor?: AuditActor | null) {
   const normalized = name.trim();
   if (normalized.length < 2 || normalized.length > 100) throw new Error('El proveedor debe tener entre 2 y 100 caracteres.');
-  await db.runAsync('INSERT INTO suppliers (id, name, phone, email) VALUES (?, ?, ?, ?)', Crypto.randomUUID(), normalized, phone.trim(), email.trim());
+  const id = Crypto.randomUUID();
+  await db.withExclusiveTransactionAsync(async (txn) => {
+    await txn.runAsync('INSERT INTO suppliers (id, name, phone, email) VALUES (?, ?, ?, ?)', id, normalized, phone.trim(), email.trim());
+    await recordAuditEvent(txn, { actor, action: 'Proveedor creado', entityType: 'Proveedor', entityId: id, summary: normalized });
+  });
 }
 
 export async function createPurchaseOrder(db: SQLiteDatabase, supplierId: string | null, reference: string, lines: { product: ProductOption; quantity: number; unitCostCents: number }[], createdBy = 'Administrador') {

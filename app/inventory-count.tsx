@@ -125,7 +125,7 @@ export default function InventoryCountScreen() {
     if (!count) return;
     Alert.alert('Cancelar conteo', 'Se descartarán las cantidades capturadas y no se cambiarán existencias.', [
       { text: 'Seguir contando', style: 'cancel' },
-      { text: 'Cancelar conteo', style: 'destructive', onPress: () => { void cancelInventoryCount(db, count.id).then(refresh); } },
+      { text: 'Cancelar conteo', style: 'destructive', onPress: () => { void cancelInventoryCount(db, count.id, user?.name).then(refresh); } },
     ]);
   };
 

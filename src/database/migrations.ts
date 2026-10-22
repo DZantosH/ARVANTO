@@ -389,4 +389,110 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
       await db.runAsync('INSERT INTO schema_migrations (version) VALUES (?)', 8);
     });
   }
+
+  if ((current?.version ?? 0) < 9) {
+    await db.withTransactionAsync(async () => {
+      await db.execAsync(`
+        ALTER TABLE sales ADD COLUMN cancelled_by TEXT;
+        ALTER TABLE sales ADD COLUMN cancel_reason TEXT NOT NULL DEFAULT '';
+        ALTER TABLE sales_documents ADD COLUMN cancelled_by TEXT;
+        ALTER TABLE sales_documents ADD COLUMN cancel_reason TEXT NOT NULL DEFAULT '';
+        ALTER TABLE inventory_counts ADD COLUMN cancelled_by TEXT;
+        CREATE TABLE audit_logs (
+          id TEXT PRIMARY KEY NOT NULL,
+          actor_id TEXT REFERENCES app_users(id) ON DELETE SET NULL,
+          actor_name TEXT NOT NULL DEFAULT 'Sistema',
+          action TEXT NOT NULL,
+          entity_type TEXT NOT NULL,
+          entity_id TEXT NOT NULL DEFAULT '',
+          summary TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+        );
+        CREATE INDEX audit_logs_created_idx ON audit_logs (created_at DESC);
+        CREATE INDEX audit_logs_actor_idx ON audit_logs (actor_id, created_at DESC);
+        CREATE INDEX audit_logs_entity_idx ON audit_logs (entity_type, created_at DESC);
+
+        CREATE TRIGGER audit_sales_insert AFTER INSERT ON sales BEGIN
+          INSERT INTO audit_logs (id, actor_name, action, entity_type, entity_id, summary)
+          VALUES (lower(hex(randomblob(16))), NEW.created_by, 'Venta registrada', 'Venta', NEW.id,
+            'Ticket #' || NEW.ticket_number || ' · total ' || NEW.total_cents || ' centavos · crédito ' || NEW.credit_cents || ' centavos');
+        END;
+        CREATE TRIGGER audit_sale_returns_insert AFTER INSERT ON sale_returns BEGIN
+          INSERT INTO audit_logs (id, actor_name, action, entity_type, entity_id, summary)
+          VALUES (lower(hex(randomblob(16))), NEW.created_by, 'Devolución registrada', 'Venta', NEW.sale_id,
+            'Reembolso ' || NEW.refund_cents || ' centavos · ' || NEW.reason);
+        END;
+        CREATE TRIGGER audit_sales_cancelled AFTER UPDATE OF status ON sales WHEN OLD.status='completed' AND NEW.status='cancelled' BEGIN
+          INSERT INTO audit_logs (id, actor_name, action, entity_type, entity_id, summary)
+          VALUES (lower(hex(randomblob(16))), COALESCE(NEW.cancelled_by, NEW.created_by), 'Venta cancelada', 'Venta', NEW.id,
+            'Ticket #' || NEW.ticket_number || ' · ' || COALESCE(NEW.cancel_reason, 'Sin motivo'));
+        END;
+        CREATE TRIGGER audit_credit_payments_insert AFTER INSERT ON credit_payments BEGIN
+          INSERT INTO audit_logs (id, actor_name, action, entity_type, entity_id, summary)
+          VALUES (lower(hex(randomblob(16))), NEW.created_by, 'Abono de cliente', 'Cliente', NEW.customer_id,
+            NEW.amount_cents || ' centavos · ' || NEW.method);
+        END;
+        CREATE TRIGGER audit_cash_sessions_insert AFTER INSERT ON cash_sessions BEGIN
+          INSERT INTO audit_logs (id, actor_name, action, entity_type, entity_id, summary)
+          VALUES (lower(hex(randomblob(16))), NEW.opened_by, 'Caja abierta', 'Caja', NEW.id,
+            'Fondo inicial ' || NEW.opening_cash_cents || ' centavos');
+        END;
+        CREATE TRIGGER audit_cash_sessions_close AFTER UPDATE OF closed_at ON cash_sessions WHEN OLD.closed_at IS NULL AND NEW.closed_at IS NOT NULL BEGIN
+          INSERT INTO audit_logs (id, actor_name, action, entity_type, entity_id, summary)
+          VALUES (lower(hex(randomblob(16))), NEW.closed_by, 'Caja cerrada', 'Caja', NEW.id,
+            'Diferencia ' || COALESCE(NEW.difference_cents, 0) || ' centavos');
+        END;
+        CREATE TRIGGER audit_cash_movements_insert AFTER INSERT ON cash_movements BEGIN
+          INSERT INTO audit_logs (id, actor_name, action, entity_type, entity_id, summary)
+          VALUES (lower(hex(randomblob(16))), NEW.created_by,
+            CASE NEW.kind WHEN 'in' THEN 'Entrada de caja' ELSE 'Salida de caja' END,
+            'Caja', NEW.session_id, NEW.amount_cents || ' centavos · ' || NEW.reason);
+        END;
+        CREATE TRIGGER audit_inventory_adjustments AFTER INSERT ON inventory_movements WHEN NEW.kind IN ('adjustment', 'purchase') BEGIN
+          INSERT INTO audit_logs (id, actor_name, action, entity_type, entity_id, summary)
+          VALUES (lower(hex(randomblob(16))), NEW.created_by,
+            CASE NEW.kind WHEN 'purchase' THEN 'Existencia recibida' ELSE 'Inventario ajustado' END,
+            'Producto', NEW.product_id, NEW.quantity_delta || ' unidades · ' || NEW.reason);
+        END;
+        CREATE TRIGGER audit_purchases_insert AFTER INSERT ON purchases BEGIN
+          INSERT INTO audit_logs (id, actor_name, action, entity_type, entity_id, summary)
+          VALUES (lower(hex(randomblob(16))), NEW.created_by, 'Compra creada', 'Compra', NEW.id,
+            'Referencia ' || COALESCE(NULLIF(NEW.reference, ''), 'sin referencia') || ' · total ' || NEW.total_cents || ' centavos');
+        END;
+        CREATE TRIGGER audit_purchase_receipts_insert AFTER INSERT ON purchase_receipts BEGIN
+          INSERT INTO audit_logs (id, actor_name, action, entity_type, entity_id, summary)
+          VALUES (lower(hex(randomblob(16))), NEW.created_by, 'Recepción de compra', 'Compra', NEW.purchase_id,
+            'Remisión ' || COALESCE(NULLIF(NEW.reference, ''), 'sin referencia'));
+        END;
+        CREATE TRIGGER audit_supplier_payments_insert AFTER INSERT ON supplier_payments BEGIN
+          INSERT INTO audit_logs (id, actor_name, action, entity_type, entity_id, summary)
+          VALUES (lower(hex(randomblob(16))), NEW.created_by, 'Abono a proveedor', 'Compra', NEW.purchase_id,
+            NEW.amount_cents || ' centavos · ' || NEW.method);
+        END;
+        CREATE TRIGGER audit_inventory_counts_insert AFTER INSERT ON inventory_counts BEGIN
+          INSERT INTO audit_logs (id, actor_name, action, entity_type, entity_id, summary)
+          VALUES (lower(hex(randomblob(16))), NEW.created_by, 'Conteo iniciado', 'Inventario', NEW.id,
+            'Conteo físico #' || NEW.count_number);
+        END;
+        CREATE TRIGGER audit_inventory_counts_status AFTER UPDATE OF status ON inventory_counts WHEN OLD.status='open' AND NEW.status IN ('completed','cancelled') BEGIN
+          INSERT INTO audit_logs (id, actor_name, action, entity_type, entity_id, summary)
+          VALUES (lower(hex(randomblob(16))), COALESCE(NEW.completed_by, NEW.cancelled_by, NEW.created_by),
+            CASE NEW.status WHEN 'completed' THEN 'Conteo finalizado' ELSE 'Conteo cancelado' END,
+            'Inventario', NEW.id, 'Conteo físico #' || NEW.count_number);
+        END;
+        CREATE TRIGGER audit_sales_documents_insert AFTER INSERT ON sales_documents BEGIN
+          INSERT INTO audit_logs (id, actor_name, action, entity_type, entity_id, summary)
+          VALUES (lower(hex(randomblob(16))), NEW.created_by,
+            CASE NEW.kind WHEN 'quote' THEN 'Cotización creada' ELSE 'Apartado creado' END,
+            'Documento de venta', NEW.id, 'Documento #' || NEW.document_number || ' · total ' || NEW.total_cents || ' centavos');
+        END;
+        CREATE TRIGGER audit_sales_documents_cancelled AFTER UPDATE OF status ON sales_documents WHEN OLD.status='open' AND NEW.status='cancelled' BEGIN
+          INSERT INTO audit_logs (id, actor_name, action, entity_type, entity_id, summary)
+          VALUES (lower(hex(randomblob(16))), COALESCE(NEW.cancelled_by, NEW.created_by), 'Documento cancelado', 'Documento de venta', NEW.id,
+            'Documento #' || NEW.document_number || ' · ' || COALESCE(NEW.cancel_reason, 'Sin motivo'));
+        END;
+      `);
+      await db.runAsync('INSERT INTO schema_migrations (version) VALUES (?)', 9);
+    });
+  }
 }

@@ -80,13 +80,13 @@ export default function ProductsScreen() {
   };
 
   const saveProduct = async (input: ProductInput) => {
-    if (selectedProduct) await updateProduct(db, selectedProduct.id, input);
-    else await createProduct(db, input, user?.name);
+    if (selectedProduct) await updateProduct(db, selectedProduct.id, input, user?.name, user?.id);
+    else await createProduct(db, input, user?.name, user?.id);
     await loadFirstPage();
   };
 
   const changeProductStatus = async (product: Product, isActive: boolean) => {
-    await setProductActive(db, product.id, isActive);
+    await setProductActive(db, product.id, isActive, user?.name, user?.id);
     await loadFirstPage();
   };
 

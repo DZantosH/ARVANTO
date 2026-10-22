@@ -23,6 +23,8 @@ export default function RootLayout() {
             <Stack.Screen name="purchases" />
             <Stack.Screen name="reports" />
             <Stack.Screen name="users" />
+            <Stack.Screen name="audit" />
+            <Stack.Screen name="change-pin" />
           </Stack>
         </AuthProvider>
       </SQLiteProvider>
@@ -38,7 +40,7 @@ function AuthNavigationGuard() {
     const section = String(segments[0]);
     if (!user && section !== 'access') router.replace('/access' as Href);
     else if (user && section === 'access') router.replace('/(tabs)' as Href);
-    else if (user && user.role !== 'admin' && section === 'users') router.replace('/(tabs)/settings' as Href);
+    else if (user && user.role !== 'admin' && ['users', 'audit'].includes(section)) router.replace('/(tabs)/settings' as Href);
     else if (user?.role === 'cashier' && ['purchases', 'reports', 'backup', 'inventory', 'inventory-count'].includes(section)) router.replace('/(tabs)' as Href);
   }, [ready, user, segments]);
   return null;
