@@ -77,6 +77,7 @@ export async function getCustomers(db: SQLiteDatabase, query = '') {
   return db.getAllAsync<Customer>(
     `SELECT c.id, c.name, c.phone, c.email, c.address, c.credit_limit_cents, c.is_active,
       COALESCE((SELECT SUM(s.credit_cents) FROM sales s WHERE s.customer_id = c.id AND s.status = 'completed'), 0) -
+      COALESCE((SELECT SUM(r.credit_refund_cents) FROM sale_returns r JOIN sales s ON s.id=r.sale_id WHERE s.customer_id=c.id AND s.status='completed'), 0) -
       COALESCE((SELECT SUM(cp.amount_cents) FROM credit_payments cp WHERE cp.customer_id = c.id), 0) AS balance_cents
      FROM customers c WHERE c.name LIKE ? ESCAPE '!' OR c.phone LIKE ? ESCAPE '!'
      ORDER BY c.is_active DESC, c.name COLLATE NOCASE LIMIT 100`, term, term,
@@ -97,7 +98,8 @@ export async function addCreditPayment(db: SQLiteDatabase, customerId: string, m
     if (!session) throw new Error('Abre caja para registrar un abono.');
     const customer = await txn.getFirstAsync<{ balance: number }>(
       `SELECT COALESCE((SELECT SUM(credit_cents) FROM sales WHERE customer_id = ? AND status = 'completed'), 0) -
-       COALESCE((SELECT SUM(amount_cents) FROM credit_payments WHERE customer_id = ?), 0) AS balance`, customerId, customerId,
+       COALESCE((SELECT SUM(r.credit_refund_cents) FROM sale_returns r JOIN sales s ON s.id=r.sale_id WHERE s.customer_id=? AND s.status='completed'), 0) -
+       COALESCE((SELECT SUM(amount_cents) FROM credit_payments WHERE customer_id = ?), 0) AS balance`, customerId, customerId, customerId,
     );
     if (!customer || amountCents > customer.balance) throw new Error('El abono supera el saldo pendiente del cliente.');
     await txn.runAsync('INSERT INTO credit_payments (id, customer_id, session_id, method, amount_cents, note, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)', Crypto.randomUUID(), customerId, session.id, method, amountCents, note.trim().slice(0, 160), createdBy);
@@ -151,8 +153,9 @@ export async function getPurchases(db: SQLiteDatabase) {
 
 export async function getBusinessReport(db: SQLiteDatabase) {
   const today = await db.getFirstAsync<{ sales_cents: number; tickets: number; cost_cents: number; credit_cents: number }>(
-    `SELECT COALESCE(SUM(total_cents), 0) AS sales_cents, COUNT(*) AS tickets, COALESCE(SUM(credit_cents), 0) AS credit_cents,
-      (SELECT CAST(ROUND(COALESCE(SUM(i.unit_cost_cents * i.quantity), 0)) AS INTEGER) FROM sale_items i JOIN sales s ON s.id = i.sale_id
+    `SELECT COALESCE(SUM(total_cents), 0) - COALESCE((SELECT SUM(r.refund_cents) FROM sale_returns r JOIN sales rs ON rs.id=r.sale_id WHERE rs.status='completed' AND date(r.created_at, 'localtime') = date('now', 'localtime')),0) AS sales_cents,
+      COUNT(*) AS tickets, COALESCE(SUM(credit_cents), 0) AS credit_cents,
+      (SELECT CAST(ROUND(COALESCE(SUM(i.unit_cost_cents * i.quantity), 0)) AS INTEGER) - COALESCE((SELECT ROUND(SUM(si.unit_cost_cents * ri.quantity)) FROM sale_return_items ri JOIN sale_items si ON si.id=ri.sale_item_id JOIN sale_returns sr ON sr.id=ri.return_id WHERE date(sr.created_at, 'localtime') = date('now', 'localtime')),0) FROM sale_items i JOIN sales s ON s.id = i.sale_id
        WHERE s.status = 'completed' AND date(s.created_at, 'localtime') = date('now', 'localtime')) AS cost_cents
      FROM sales WHERE status = 'completed' AND date(created_at, 'localtime') = date('now', 'localtime')`,
   );
@@ -164,7 +167,7 @@ export async function getBusinessReport(db: SQLiteDatabase) {
     `SELECT COALESCE(SUM(total_cents), 0) AS total_cents, COUNT(*) AS count FROM purchases WHERE date(created_at, 'localtime') = date('now', 'localtime')`,
   );
   const receivables = await db.getFirstAsync<{ balance_cents: number }>(
-    `SELECT COALESCE((SELECT SUM(credit_cents) FROM sales WHERE status = 'completed'), 0) - COALESCE((SELECT SUM(amount_cents) FROM credit_payments), 0) AS balance_cents`,
+    `SELECT COALESCE((SELECT SUM(credit_cents) FROM sales WHERE status = 'completed'), 0) - COALESCE((SELECT SUM(r.credit_refund_cents) FROM sale_returns r JOIN sales s ON s.id=r.sale_id WHERE s.status='completed'), 0) - COALESCE((SELECT SUM(amount_cents) FROM credit_payments), 0) AS balance_cents`,
   );
   return { salesCents: today?.sales_cents ?? 0, tickets: today?.tickets ?? 0, costCents: today?.cost_cents ?? 0, creditCents: today?.credit_cents ?? 0, products: inventory?.products ?? 0, lowStock: inventory?.low_stock ?? 0, stockValueCents: inventory?.stock_value_cents ?? 0, purchasesCents: purchases?.total_cents ?? 0, purchaseCount: purchases?.count ?? 0, receivablesCents: receivables?.balance_cents ?? 0 };
 }

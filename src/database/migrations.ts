@@ -221,4 +221,71 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
       await db.runAsync('INSERT INTO schema_migrations (version) VALUES (?)', 4);
     });
   }
+
+  if ((current?.version ?? 0) < 5) {
+    await db.withTransactionAsync(async () => {
+      await db.execAsync(`
+        ALTER TABLE sales ADD COLUMN tax_cents INTEGER NOT NULL DEFAULT 0 CHECK (tax_cents >= 0);
+        CREATE TABLE sale_returns (
+          id TEXT PRIMARY KEY NOT NULL,
+          sale_id TEXT NOT NULL REFERENCES sales(id) ON DELETE RESTRICT,
+          session_id TEXT NOT NULL REFERENCES cash_sessions(id) ON DELETE RESTRICT,
+          reason TEXT NOT NULL,
+          refund_cents INTEGER NOT NULL CHECK (refund_cents >= 0),
+          created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+          created_by TEXT NOT NULL DEFAULT 'Administrador'
+        );
+        CREATE INDEX sale_returns_sale_idx ON sale_returns (sale_id, created_at);
+        CREATE TABLE sale_return_items (
+          id TEXT PRIMARY KEY NOT NULL,
+          return_id TEXT NOT NULL REFERENCES sale_returns(id) ON DELETE RESTRICT,
+          sale_item_id TEXT NOT NULL REFERENCES sale_items(id) ON DELETE RESTRICT,
+          product_id TEXT NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
+          quantity REAL NOT NULL CHECK (quantity > 0),
+          refund_cents INTEGER NOT NULL CHECK (refund_cents >= 0)
+        );
+        CREATE TABLE sales_documents (
+          id TEXT PRIMARY KEY NOT NULL,
+          document_number INTEGER NOT NULL UNIQUE,
+          kind TEXT NOT NULL CHECK (kind IN ('quote', 'layaway')),
+          status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'converted', 'cancelled', 'expired')),
+          customer_id TEXT REFERENCES customers(id) ON DELETE RESTRICT,
+          customer_name TEXT NOT NULL DEFAULT '',
+          subtotal_cents INTEGER NOT NULL CHECK (subtotal_cents >= 0),
+          discount_cents INTEGER NOT NULL DEFAULT 0 CHECK (discount_cents >= 0),
+          tax_cents INTEGER NOT NULL DEFAULT 0 CHECK (tax_cents >= 0),
+          total_cents INTEGER NOT NULL CHECK (total_cents >= 0),
+          expires_at TEXT,
+          note TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+          created_by TEXT NOT NULL DEFAULT 'Administrador'
+        );
+        CREATE INDEX sales_documents_open_idx ON sales_documents (status, kind, created_at DESC);
+        CREATE TABLE sales_document_items (
+          id TEXT PRIMARY KEY NOT NULL,
+          document_id TEXT NOT NULL REFERENCES sales_documents(id) ON DELETE RESTRICT,
+          product_id TEXT NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
+          product_name TEXT NOT NULL,
+          sku TEXT,
+          quantity REAL NOT NULL CHECK (quantity > 0),
+          unit_price_cents INTEGER NOT NULL CHECK (unit_price_cents >= 0),
+          line_total_cents INTEGER NOT NULL CHECK (line_total_cents >= 0)
+        );
+        CREATE INDEX sales_document_items_doc_idx ON sales_document_items (document_id);
+      `);
+      await db.runAsync('INSERT INTO schema_migrations (version) VALUES (?)', 5);
+    });
+  }
+
+  if ((current?.version ?? 0) < 6) {
+    await db.withTransactionAsync(async () => {
+      await db.execAsync(`
+        ALTER TABLE sale_returns ADD COLUMN cash_refund_cents INTEGER NOT NULL DEFAULT 0 CHECK (cash_refund_cents >= 0);
+        ALTER TABLE sale_returns ADD COLUMN card_refund_cents INTEGER NOT NULL DEFAULT 0 CHECK (card_refund_cents >= 0);
+        ALTER TABLE sale_returns ADD COLUMN transfer_refund_cents INTEGER NOT NULL DEFAULT 0 CHECK (transfer_refund_cents >= 0);
+        ALTER TABLE sale_returns ADD COLUMN credit_refund_cents INTEGER NOT NULL DEFAULT 0 CHECK (credit_refund_cents >= 0);
+      `);
+      await db.runAsync('INSERT INTO schema_migrations (version) VALUES (?)', 6);
+    });
+  }
 }

@@ -22,11 +22,19 @@ export type SaleSummary = {
   status: 'completed' | 'cancelled';
 };
 
+export type SalesDocument = {
+  id: string; document_number: number; kind: 'quote' | 'layaway'; status: 'open' | 'converted' | 'cancelled' | 'expired';
+  customer_name: string; subtotal_cents: number; discount_cents: number; tax_cents: number; total_cents: number; created_at: string; expires_at: string | null;
+};
+
 export type SaleReceipt = SaleSummary & {
   session_id: string;
   customer_name?: string | null;
   credit_cents?: number;
-  items: { product_name: string; sku: string | null; quantity: number; unit_price_cents: number; line_total_cents: number }[];
+  subtotal_cents: number;
+  discount_cents: number;
+  tax_cents: number;
+  items: { id: string; product_name: string; sku: string | null; quantity: number; returned_quantity: number; unit_price_cents: number; line_total_cents: number }[];
   payments: { method: 'cash' | 'card' | 'transfer'; amount_cents: number }[];
 };
 
@@ -128,14 +136,20 @@ export async function closeCashSession(db: SQLiteDatabase, countedCashCents: num
 export async function searchSaleProducts(db: SQLiteDatabase, query: string) {
   const term = `%${query.trim().replace(/[!%_]/g, '!$&')}%`;
   return db.getAllAsync<{ id: string; name: string; sku: string | null; price_cents: number; cost_cents: number; stock_quantity: number }>(
-    `SELECT id, name, sku, price_cents, cost_cents, stock_quantity FROM products
+    `SELECT p.id, p.name, p.sku, p.price_cents, p.cost_cents,
+            MAX(0, p.stock_quantity - COALESCE((SELECT SUM(i.quantity) FROM sales_document_items i JOIN sales_documents d ON d.id=i.document_id WHERE i.product_id=p.id AND d.kind='layaway' AND d.status='open'),0)) AS stock_quantity
+     FROM products p
      WHERE is_active = 1 AND (name LIKE ? ESCAPE '!' OR COALESCE(sku, '') LIKE ? ESCAPE '!')
      ORDER BY name COLLATE NOCASE LIMIT 50`, term, term,
   );
 }
 
-export async function completeSale(db: SQLiteDatabase, lines: CartLine[], payments: PaymentAmounts, customerId: string | null = null, creditCents = 0, createdBy = 'Administrador'): Promise<SaleReceipt> {
-  const totalCents = getCartTotalCents(lines);
+export async function completeSale(db: SQLiteDatabase, lines: CartLine[], payments: PaymentAmounts, customerId: string | null = null, creditCents = 0, createdBy = 'Administrador', adjustments: { discountCents?: number; taxCents?: number; documentId?: string | null } = {}): Promise<SaleReceipt> {
+  const subtotalCents = getCartTotalCents(lines);
+  const discountCents = adjustments.discountCents ?? 0;
+  const taxCents = adjustments.taxCents ?? 0;
+  if (![discountCents, taxCents].every((amount) => Number.isSafeInteger(amount) && amount >= 0) || discountCents > subtotalCents) throw new Error('Revisa el descuento y los impuestos.');
+  const totalCents = subtotalCents - discountCents + taxCents;
   if (!lines.length || totalCents <= 0) throw new Error('Agrega productos con precio antes de cobrar.');
   if (lines.some((line) => !Number.isFinite(line.quantity) || line.quantity <= 0 || line.quantity > line.stock)) {
     throw new Error('Revisa las cantidades disponibles en el carrito.');
@@ -148,6 +162,12 @@ export async function completeSale(db: SQLiteDatabase, lines: CartLine[], paymen
   await db.withExclusiveTransactionAsync(async (txn) => {
     const session = await txn.getFirstAsync<CashSession>('SELECT * FROM cash_sessions WHERE closed_at IS NULL LIMIT 1');
     if (!session) throw new Error('Abre la caja antes de registrar una venta.');
+    let documentKind: 'quote'|'layaway'|null = null;
+    if (adjustments.documentId) {
+      const document = await txn.getFirstAsync<{ kind: 'quote'|'layaway' }>('SELECT kind FROM sales_documents WHERE id=? AND status=\'open\'', adjustments.documentId);
+      if (!document) throw new Error('El documento ya no está abierto; vuelve a cargarlo antes de cobrar.');
+      documentKind = document.kind;
+    }
     let customerName: string | null = null;
     if (creditCents > 0) {
       if (!customerId) throw new Error('Selecciona un cliente para registrar crédito.');
@@ -155,7 +175,8 @@ export async function completeSale(db: SQLiteDatabase, lines: CartLine[], paymen
       if (!customer) throw new Error('El cliente no existe o está inactivo.');
       const balance = await txn.getFirstAsync<{ amount: number }>(
         `SELECT COALESCE((SELECT SUM(credit_cents) FROM sales WHERE customer_id = ? AND status = 'completed'), 0) -
-         COALESCE((SELECT SUM(amount_cents) FROM credit_payments WHERE customer_id = ?), 0) AS amount`, customerId, customerId,
+         COALESCE((SELECT SUM(r.credit_refund_cents) FROM sale_returns r JOIN sales s ON s.id=r.sale_id WHERE s.customer_id=?), 0) -
+         COALESCE((SELECT SUM(amount_cents) FROM credit_payments WHERE customer_id = ?), 0) AS amount`, customerId, customerId, customerId,
       );
       if (customer.credit_limit_cents > 0 && (balance?.amount ?? 0) + creditCents > customer.credit_limit_cents) throw new Error('El crédito supera el límite disponible del cliente.');
       customerName = customer.name;
@@ -164,15 +185,17 @@ export async function completeSale(db: SQLiteDatabase, lines: CartLine[], paymen
     const ticketNumber = ticket?.next ?? 1;
     const timestamp = new Date().toISOString();
     await txn.runAsync(
-      'INSERT INTO sales (id, ticket_number, session_id, subtotal_cents, total_cents, change_cents, created_at, customer_id, credit_cents, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      saleId, ticketNumber, session.id, totalCents, totalCents, paymentCheck.changeCents, timestamp, customerId, creditCents, createdBy,
+      'INSERT INTO sales (id, ticket_number, session_id, subtotal_cents, discount_cents, tax_cents, total_cents, change_cents, created_at, customer_id, credit_cents, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      saleId, ticketNumber, session.id, subtotalCents, discountCents, taxCents, totalCents, paymentCheck.changeCents, timestamp, customerId, creditCents, createdBy,
     );
     for (const line of lines) {
       const live = await txn.getFirstAsync<{ name: string; sku: string | null; price_cents: number; cost_cents: number; stock_quantity: number; is_active: number }>(
         'SELECT name, sku, price_cents, cost_cents, stock_quantity, is_active FROM products WHERE id = ?', line.productId,
       );
       if (!live || live.is_active !== 1) throw new Error(`El producto ${line.name} ya no está activo.`);
-      if (live.stock_quantity < line.quantity) throw new Error(`Existencia insuficiente de ${live.name}.`);
+      const reserved = await txn.getFirstAsync<{ quantity: number }>("SELECT COALESCE(SUM(i.quantity),0) AS quantity FROM sales_document_items i JOIN sales_documents d ON d.id=i.document_id WHERE i.product_id=? AND d.kind='layaway' AND d.status='open'", line.productId);
+      const ownReserved = documentKind === 'layaway' && adjustments.documentId ? await txn.getFirstAsync<{ quantity: number }>("SELECT COALESCE(SUM(quantity),0) AS quantity FROM sales_document_items WHERE document_id=? AND product_id=?", adjustments.documentId, line.productId) : null;
+      if (live.stock_quantity - (reserved?.quantity ?? 0) + (ownReserved?.quantity ?? 0) < line.quantity) throw new Error(`Existencia insuficiente de ${live.name}; hay unidades apartadas para otros clientes.`);
       if (live.price_cents !== line.unitPriceCents) throw new Error(`El precio de ${live.name} cambió. Actualiza el carrito.`);
       const lineTotal = Math.round(live.price_cents * line.quantity);
       if (lineTotal <= 0) throw new Error(`${live.name} no tiene precio de venta.`);
@@ -199,10 +222,15 @@ export async function completeSale(db: SQLiteDatabase, lines: CartLine[], paymen
         Crypto.randomUUID(), saleId, session.id, method, amount,
       );
     }
+    if (adjustments.documentId) {
+      const converted = await txn.runAsync("UPDATE sales_documents SET status='converted' WHERE id=? AND status='open'", adjustments.documentId);
+      if (converted.changes !== 1) throw new Error('El documento ya no está abierto; vuelve a cargarlo antes de cobrar.');
+    }
     receipt = {
       id: saleId, ticket_number: ticketNumber, total_cents: totalCents, change_cents: paymentCheck.changeCents,
       created_at: timestamp, status: 'completed', session_id: session.id, customer_name: customerName, credit_cents: creditCents,
-      items: lines.map((line) => ({ product_name: line.name, sku: line.sku, quantity: line.quantity, unit_price_cents: line.unitPriceCents, line_total_cents: Math.round(line.unitPriceCents * line.quantity) })),
+      subtotal_cents: subtotalCents, discount_cents: discountCents, tax_cents: taxCents,
+      items: await txn.getAllAsync<SaleReceipt['items'][number]>('SELECT id,product_name,sku,quantity,unit_price_cents,line_total_cents,0 AS returned_quantity FROM sale_items WHERE sale_id = ?', saleId),
       payments: paymentRows.filter(([, amount]) => amount > 0).map(([method, amount]) => ({ method, amount_cents: amount })),
     };
   });
@@ -216,13 +244,142 @@ export async function getRecentSales(db: SQLiteDatabase): Promise<SaleSummary[]>
   );
 }
 
+export async function cancelSale(db: SQLiteDatabase, saleId: string, reason: string, createdBy = 'Administrador'): Promise<void> {
+  const normalized = reason.trim();
+  if (normalized.length < 3) throw new Error('Indica el motivo de cancelación.');
+  await db.withExclusiveTransactionAsync(async (txn) => {
+    const sale = await txn.getFirstAsync<{ id: string; status: string; total_cents: number; session_id: string }>('SELECT id,status,total_cents,session_id FROM sales WHERE id = ?', saleId);
+    if (!sale || sale.status !== 'completed') throw new Error('Solo se pueden cancelar ventas completadas.');
+    const prior = await txn.getFirstAsync<{ count: number }>('SELECT COUNT(*) AS count FROM sale_returns WHERE sale_id = ?', saleId);
+    if (prior?.count) throw new Error('Esta venta ya tiene devoluciones; registra la devolución completa de las partidas pendientes.');
+    const items = await txn.getAllAsync<{ product_id: string; quantity: number; product_name: string }>('SELECT product_id,quantity,product_name FROM sale_items WHERE sale_id = ?', saleId);
+    for (const item of items) {
+      await txn.runAsync('UPDATE products SET stock_quantity = stock_quantity + ?, updated_at = strftime(\'%Y-%m-%dT%H:%M:%fZ\', \'now\') WHERE id = ?', item.quantity, item.product_id);
+      await txn.runAsync("INSERT INTO inventory_movements (id,product_id,kind,quantity_delta,reference_id,reason,created_by) VALUES (?,?,'adjustment',?,?,?,?)", Crypto.randomUUID(), item.product_id, item.quantity, saleId, `Cancelación: ${normalized}`, createdBy);
+    }
+    const refundId = Crypto.randomUUID();
+    const session = await txn.getFirstAsync<{ id: string }>('SELECT id FROM cash_sessions WHERE closed_at IS NULL LIMIT 1');
+    if (!session) throw new Error('Abre la caja para registrar la cancelación y su reembolso.');
+    const allocation = await allocateSaleRefund(txn, saleId, sale.total_cents);
+    await txn.runAsync('INSERT INTO sale_returns (id,sale_id,session_id,reason,refund_cents,cash_refund_cents,card_refund_cents,transfer_refund_cents,credit_refund_cents,created_by) VALUES (?,?,?,?,?,?,?,?,?,?)', refundId, saleId, session.id, normalized, sale.total_cents, allocation.cash, allocation.card, allocation.transfer, allocation.credit, createdBy);
+    if (allocation.cash > 0) await txn.runAsync('INSERT INTO cash_movements (id,session_id,kind,amount_cents,reason,created_by) VALUES (?, ?, \'out\', ?, ?, ?)', Crypto.randomUUID(), session.id, allocation.cash, `Reembolso cancelación ticket: ${normalized}`, createdBy);
+    await txn.runAsync("UPDATE sales SET status = 'cancelled' WHERE id = ? AND status = 'completed'", saleId);
+  });
+}
+
+export async function returnSaleItems(db: SQLiteDatabase, saleId: string, lines: { saleItemId: string; quantity: number }[], reason: string, createdBy = 'Administrador'): Promise<number> {
+  const normalized = reason.trim();
+  if (!lines.length || normalized.length < 3) throw new Error('Agrega partidas y el motivo de devolución.');
+  let refundTotal = 0;
+  await db.withExclusiveTransactionAsync(async (txn) => {
+    const sale = await txn.getFirstAsync<{ id: string; status: string; session_id: string; subtotal_cents: number; total_cents: number }>('SELECT id,status,session_id,subtotal_cents,total_cents FROM sales WHERE id = ?', saleId);
+    if (!sale || sale.status !== 'completed') throw new Error('La venta no está disponible para devolución.');
+    const session = await txn.getFirstAsync<{ id: string }>('SELECT id FROM cash_sessions WHERE closed_at IS NULL LIMIT 1');
+    if (!session) throw new Error('Abre la caja para registrar la devolución.');
+    const returnId = Crypto.randomUUID();
+    const previous = await txn.getFirstAsync<{ amount: number }>('SELECT COALESCE(SUM(refund_cents),0) AS amount FROM sale_returns WHERE sale_id=?', saleId);
+    const maxRefund = Math.max(0, sale.total_cents - (previous?.amount ?? 0));
+    for (const line of lines) {
+      if (!Number.isFinite(line.quantity) || line.quantity <= 0) throw new Error('La cantidad devuelta no es válida.');
+      const item = await txn.getFirstAsync<{ product_id: string; quantity: number; unit_price_cents: number; id: string }>('SELECT id,product_id,quantity,unit_price_cents FROM sale_items WHERE id = ? AND sale_id = ?', line.saleItemId, saleId);
+      if (!item) throw new Error('Una partida ya no pertenece a esta venta.');
+      const returned = await txn.getFirstAsync<{ quantity: number }>('SELECT COALESCE(SUM(ri.quantity),0) AS quantity FROM sale_return_items ri JOIN sale_returns r ON r.id = ri.return_id WHERE ri.sale_item_id = ?', line.saleItemId);
+      if ((returned?.quantity ?? 0) + line.quantity > item.quantity) throw new Error('La cantidad excede lo pendiente por devolver.');
+      const refund = Math.min(maxRefund - refundTotal, sale.subtotal_cents > 0 ? Math.round(item.unit_price_cents * line.quantity * sale.total_cents / sale.subtotal_cents) : 0);
+      refundTotal += refund;
+      await txn.runAsync('INSERT INTO sale_return_items (id,return_id,sale_item_id,product_id,quantity,refund_cents) VALUES (?,?,?,?,?,?)', Crypto.randomUUID(), returnId, line.saleItemId, item.product_id, line.quantity, refund);
+      await txn.runAsync('UPDATE products SET stock_quantity = stock_quantity + ?, updated_at = strftime(\'%Y-%m-%dT%H:%M:%fZ\', \'now\') WHERE id = ?', line.quantity, item.product_id);
+      await txn.runAsync("INSERT INTO inventory_movements (id,product_id,kind,quantity_delta,reference_id,reason,created_by) VALUES (?,?,'adjustment',?,?,?,?)", Crypto.randomUUID(), item.product_id, line.quantity, saleId, `Devolución: ${normalized}`, createdBy);
+    }
+    const allocation = await allocateSaleRefund(txn, saleId, refundTotal);
+    await txn.runAsync('INSERT INTO sale_returns (id,sale_id,session_id,reason,refund_cents,cash_refund_cents,card_refund_cents,transfer_refund_cents,credit_refund_cents,created_by) VALUES (?,?,?,?,?,?,?,?,?,?)', returnId, saleId, session.id, normalized, refundTotal, allocation.cash, allocation.card, allocation.transfer, allocation.credit, createdBy);
+    if (allocation.cash > 0) await txn.runAsync('INSERT INTO cash_movements (id,session_id,kind,amount_cents,reason,created_by) VALUES (?, ?, \'out\', ?, ?, ?)', Crypto.randomUUID(), session.id, allocation.cash, `Reembolso devolución: ${normalized}`, createdBy);
+  });
+  return refundTotal;
+}
+
+async function allocateSaleRefund(db: SQLiteDatabase, saleId: string, amount: number): Promise<{ cash: number; card: number; transfer: number; credit: number }> {
+  const original = await db.getAllAsync<{ method: 'cash'|'card'|'transfer'; amount_cents: number }>('SELECT method,amount_cents FROM payments WHERE sale_id=?', saleId);
+  const sale = await db.getFirstAsync<{ credit_cents: number }>('SELECT credit_cents FROM sales WHERE id=?', saleId);
+  const prior = await db.getFirstAsync<{ cash: number; card: number; transfer: number; credit: number }>(
+    'SELECT COALESCE(SUM(cash_refund_cents),0) cash,COALESCE(SUM(card_refund_cents),0) card,COALESCE(SUM(transfer_refund_cents),0) transfer,COALESCE(SUM(credit_refund_cents),0) credit FROM sale_returns WHERE sale_id=?', saleId,
+  );
+  const available = {
+    cash: Math.max(0, (original.find((p) => p.method === 'cash')?.amount_cents ?? 0) - (prior?.cash ?? 0)),
+    card: Math.max(0, (original.find((p) => p.method === 'card')?.amount_cents ?? 0) - (prior?.card ?? 0)),
+    transfer: Math.max(0, (original.find((p) => p.method === 'transfer')?.amount_cents ?? 0) - (prior?.transfer ?? 0)),
+    credit: Math.max(0, (sale?.credit_cents ?? 0) - (prior?.credit ?? 0)),
+  };
+  const availableTotal = Object.values(available).reduce((sum, value) => sum + value, 0);
+  const target = Math.min(amount, availableTotal);
+  let left = target;
+  const allocation = { cash: 0, card: 0, transfer: 0, credit: 0 };
+  const total = Math.max(1, availableTotal);
+  (['cash', 'card', 'transfer', 'credit'] as const).forEach((method, index, methods) => {
+    const share = index === methods.length - 1 ? left : Math.min(available[method], Math.round(target * available[method] / total));
+    allocation[method] = Math.min(available[method], Math.max(0, share));
+    left -= allocation[method];
+  });
+  if (left > 0) for (const method of ['cash', 'card', 'transfer', 'credit'] as const) {
+    const extra = Math.min(left, available[method] - allocation[method]);
+    allocation[method] += extra;
+    left -= extra;
+  }
+  return allocation;
+}
+
+export async function getOpenSalesDocuments(db: SQLiteDatabase): Promise<SalesDocument[]> {
+  await db.runAsync("UPDATE sales_documents SET status = 'expired' WHERE status = 'open' AND expires_at IS NOT NULL AND expires_at < strftime('%Y-%m-%dT%H:%M:%fZ','now')");
+  return db.getAllAsync<SalesDocument>("SELECT id,document_number,kind,status,customer_name,subtotal_cents,discount_cents,tax_cents,total_cents,created_at,expires_at FROM sales_documents WHERE status='open' ORDER BY created_at DESC LIMIT 50");
+}
+
+export async function saveSalesDocument(db: SQLiteDatabase, kind: 'quote'|'layaway', lines: CartLine[], totals: { subtotalCents: number; discountCents: number; taxCents: number; totalCents: number }, customerName: string, customerId: string | null, createdBy = 'Administrador', note = ''): Promise<void> {
+  if (!lines.length || totals.totalCents < 0 || discountInvalid(totals)) throw new Error('Revisa el carrito y sus importes.');
+  if (kind === 'layaway' && lines.some((line) => line.quantity > line.stock)) throw new Error('No hay existencia suficiente para apartar esos productos.');
+  await db.withExclusiveTransactionAsync(async (txn) => {
+    if (kind === 'layaway') {
+      for (const line of lines) {
+        const live = await txn.getFirstAsync<{ stock_quantity: number }>('SELECT stock_quantity FROM products WHERE id = ? AND is_active = 1', line.productId);
+        const reserved = await txn.getFirstAsync<{ quantity: number }>("SELECT COALESCE(SUM(i.quantity),0) AS quantity FROM sales_document_items i JOIN sales_documents d ON d.id=i.document_id WHERE i.product_id=? AND d.kind='layaway' AND d.status='open'", line.productId);
+        if (!live || live.stock_quantity - (reserved?.quantity ?? 0) < line.quantity) throw new Error(`Existencia insuficiente para apartar ${line.name}.`);
+      }
+    }
+    const next = await txn.getFirstAsync<{ next: number }>('SELECT COALESCE(MAX(document_number),0)+1 AS next FROM sales_documents');
+    const id = Crypto.randomUUID();
+    const expires = kind === 'quote' ? new Date(Date.now() + 30 * 86400000).toISOString() : null;
+    await txn.runAsync('INSERT INTO sales_documents (id,document_number,kind,customer_id,customer_name,subtotal_cents,discount_cents,tax_cents,total_cents,expires_at,note,created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)', id, next?.next ?? 1, kind, customerId, customerName.trim(), totals.subtotalCents, totals.discountCents, totals.taxCents, totals.totalCents, expires, note.trim(), createdBy);
+    for (const line of lines) await txn.runAsync('INSERT INTO sales_document_items (id,document_id,product_id,product_name,sku,quantity,unit_price_cents,line_total_cents) VALUES (?,?,?,?,?,?,?,?)', Crypto.randomUUID(), id, line.productId, line.name, line.sku, line.quantity, line.unitPriceCents, Math.round(line.unitPriceCents * line.quantity));
+  });
+}
+
+export async function loadSalesDocument(db: SQLiteDatabase, id: string): Promise<{ document: SalesDocument; lines: CartLine[] } | null> {
+  const document = await db.getFirstAsync<SalesDocument>('SELECT id,document_number,kind,status,customer_name,subtotal_cents,discount_cents,tax_cents,total_cents,created_at,expires_at FROM sales_documents WHERE id=? AND status=\'open\'', id);
+  if (!document) return null;
+  const items = await db.getAllAsync<{ product_id: string; product_name: string; sku: string | null; quantity: number; unit_price_cents: number; stock: number; cost: number }>(
+    `SELECT i.product_id,i.product_name,i.sku,i.quantity,i.unit_price_cents,
+      MAX(0,p.stock_quantity-COALESCE((SELECT SUM(ri.quantity) FROM sales_document_items ri JOIN sales_documents rd ON rd.id=ri.document_id WHERE ri.product_id=p.id AND rd.kind='layaway' AND rd.status='open'),0)+CASE WHEN d.kind='layaway' THEN i.quantity ELSE 0 END) AS stock,
+      p.cost_cents AS cost FROM sales_document_items i JOIN sales_documents d ON d.id=i.document_id JOIN products p ON p.id=i.product_id WHERE i.document_id=?`, id,
+  );
+  return { document, lines: items.map((i) => ({ productId: i.product_id, name: i.product_name, sku: i.sku, quantity: i.quantity, unitPriceCents: i.unit_price_cents, unitCostCents: i.cost, stock: i.stock })) };
+}
+
+export async function cancelSalesDocument(db: SQLiteDatabase, id: string): Promise<void> {
+  await db.runAsync("UPDATE sales_documents SET status='cancelled' WHERE id=? AND status='open'", id);
+}
+
+function discountInvalid(totals: { subtotalCents: number; discountCents: number; taxCents: number; totalCents: number }) {
+  return ![totals.subtotalCents, totals.discountCents, totals.taxCents, totals.totalCents].every((n) => Number.isSafeInteger(n) && n >= 0) || totals.discountCents > totals.subtotalCents || totals.subtotalCents - totals.discountCents + totals.taxCents !== totals.totalCents;
+}
+
 export async function getSaleReceipt(db: SQLiteDatabase, id: string): Promise<SaleReceipt | null> {
   const sale = await db.getFirstAsync<SaleReceipt>(
-    'SELECT s.id, s.ticket_number, s.session_id, s.total_cents, s.change_cents, s.created_at, s.status, s.credit_cents, c.name AS customer_name FROM sales s LEFT JOIN customers c ON c.id = s.customer_id WHERE s.id = ?', id,
+    'SELECT s.id, s.ticket_number, s.session_id, s.subtotal_cents, s.discount_cents, s.tax_cents, s.total_cents, s.change_cents, s.created_at, s.status, s.credit_cents, c.name AS customer_name FROM sales s LEFT JOIN customers c ON c.id = s.customer_id WHERE s.id = ?', id,
   );
   if (!sale) return null;
   sale.items = await db.getAllAsync<SaleReceipt['items'][number]>(
-    'SELECT product_name, sku, quantity, unit_price_cents, line_total_cents FROM sale_items WHERE sale_id = ?', id,
+    `SELECT i.id,i.product_name,i.sku,i.quantity,i.unit_price_cents,i.line_total_cents,
+     COALESCE((SELECT SUM(ri.quantity) FROM sale_return_items ri JOIN sale_returns r ON r.id=ri.return_id WHERE ri.sale_item_id=i.id),0) AS returned_quantity
+     FROM sale_items i WHERE i.sale_id = ?`, id,
   );
   sale.payments = await db.getAllAsync<SaleReceipt['payments'][number]>(
     'SELECT method, amount_cents FROM payments WHERE sale_id = ?', id,
